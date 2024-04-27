@@ -14,37 +14,37 @@ effort has been made to not compromise efficiency or flexibility.
 
 ### Features
 #### Display Buffer
-    The Simple::Display::Buffer class encapsulates functionality
-    for creating, resizing, and rendering to a pixel buffer that
-    can then be presented to a display device/window each frame.
+  The Simple::Display::Buffer class encapsulates functionality
+  for creating, resizing, and rendering to a pixel buffer that
+  can then be presented to a display device/window each frame.
 
 #### Display Context
-    The Simple::Display::Context class provides functionality to
-    present a pixel buffer to a display device/window each frame,
-    acting as a link between the native system and graphics API.
+  The Simple::Display::Context class provides functionality to
+  present a pixel buffer to a display device/window each frame,
+  acting as a link between the native system and graphics API.
 
 #### Display Window
-    The Simple::Display::Window class encapsulates functionality
-    for creating, resizing, and updating a native system window,
-    which doubles as a display device for all desktop platforms.
+  The Simple::Display::Window class encapsulates functionality
+  for creating, resizing, and updating a native system window,
+  which doubles as a display device for all desktop platforms.
 
 #### Platform Agnostic Interfaces
-    Public interfaces provided by the Simple::Display framework
-    are designed to be platform agnostic, although some leakage
-    of platform specific concepts is tolerated provided they do
-    not negatively impact any of the other supported platforms.
+  Public interfaces provided by the Simple::Display framework
+  are designed to be platform agnostic, although some leakage
+  of platform specific concepts is tolerated provided they do
+  not negatively impact any of the other supported platforms.
 
 #### Platform Specific Implementations
-    Simple::Display::Buffer and Simple::Display::Context classes
-    can be configured with any graphics API that is supported by
-    the host platform: OpenGL, Vulkan, or Native (DirectX|Metal).
-    Simple::Display::Window class is entirely platform dependent.
+  Simple::Display::Buffer and Simple::Display::Context classes
+  can be configured with any graphics API that is supported by
+  the host platform: OpenGL, Vulkan, or Native (DirectX|Metal).
+  Simple::Display::Window class is entirely platform dependent.
 
 #### RAII (resource acquisition is initialization)
-    All of the resources required by the Simple::Display::Buffer,
-    Simple::Display::Context and Simple::Display::Window classes
-    are acquired during construction and released on destruction,
-    although resizing a buffer may result in some re-allocations.
+  All of the resources required by the Simple::Display::Buffer,
+  Simple::Display::Context and Simple::Display::Window classes
+  are acquired during construction and released on destruction,
+  although resizing a buffer may result in some re-allocations.
 
 
 ### API Documentation
