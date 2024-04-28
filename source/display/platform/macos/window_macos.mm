@@ -117,10 +117,10 @@ WindowMacOS::WindowMacOS(const Window::Config& a_config)
 //--------------------------------------------------------------
 WindowMacOS::~WindowMacOS()
 {
-    Hide();
+    // Close the native window.
     Close();
 
-    // Release the window.
+    // Release the native window.
     [m_nsWindow release];
 }
 
@@ -197,7 +197,7 @@ void WindowMacOS::Minimize()
 
     if (IsFullScreen())
     {
-        FullScreenDisable();
+        Restore();
     }
 
     while (!IsMinimized())
@@ -241,14 +241,7 @@ void WindowMacOS::FullScreenEnable()
     }
 
     Maximize();
-
-    assert(!m_isTransitioning);
-    m_isTransitioning = true;
     FullScreenToggle();
-    while (m_isTransitioning)
-    {
-        PumpWindowEventsUntilEmpty();
-    }
 }
 
 //--------------------------------------------------------------
@@ -259,19 +252,19 @@ void WindowMacOS::FullScreenDisable()
         return;
     }
 
-    assert(!m_isTransitioning);
-    m_isTransitioning = true;
     FullScreenToggle();
-    while (m_isTransitioning)
-    {
-        PumpWindowEventsUntilEmpty();
-    }
 }
 
 //--------------------------------------------------------------
 void WindowMacOS::FullScreenToggle()
 {
+    assert(!m_isTransitioning);
+    m_isTransitioning = true;
     [m_nsWindow toggleFullScreen: nil];
+    while (m_isTransitioning)
+    {
+        PumpWindowEventsUntilEmpty();
+    }
 }
 
 //--------------------------------------------------------------
