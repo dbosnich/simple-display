@@ -33,6 +33,7 @@ protected:
 
     void Maximize() override;
     void Minimize() override;
+    void Restore() override;
 
     void FullScreenEnable() override;
     void FullScreenDisable() override;
@@ -146,8 +147,8 @@ void WindowMacOS::Hide()
         return;
     }
 
-    // Disable full screen.
-    FullScreenDisable();
+    // Restore the native window.
+    Restore();
 
     // Hide the native window.
     [m_nsWindow orderOut : nil];
@@ -162,8 +163,8 @@ void WindowMacOS::Close()
         return;
     }
 
-    // Disable full screen.
-    FullScreenDisable();
+    // Hide the native window.
+    Hide();
 
     // Close the native window.
     [m_nsWindow close];
@@ -173,15 +174,60 @@ void WindowMacOS::Close()
 //--------------------------------------------------------------
 void WindowMacOS::Maximize()
 {
+    if (IsMaximized() || !m_isVisible || m_isClosed)
+    {
+        return;
+    }
+
     [m_nsWindow zoom: nil];
+    while (IsMinimized())
+    {
+        [m_nsWindow deminiaturize: nil];
+        PumpWindowEventsUntilEmpty();
+    }
 }
 
 //--------------------------------------------------------------
 void WindowMacOS::Minimize()
 {
+    if (IsMinimized() || !m_isVisible || m_isClosed)
+    {
+        return;
+    }
+
+    if (IsFullScreen())
+    {
+        FullScreenDisable();
+    }
+
     while (!IsMinimized())
     {
         [m_nsWindow miniaturize: nil];
+        PumpWindowEventsUntilEmpty();
+    }
+}
+
+//--------------------------------------------------------------
+void WindowMacOS::Restore()
+{
+    if (!m_isVisible || m_isClosed)
+    {
+        return;
+    }
+
+    if (IsFullScreen())
+    {
+        FullScreenDisable();
+    }
+
+    if (IsMaximized())
+    {
+        [m_nsWindow zoom: nil];
+    }
+
+    while (IsMinimized())
+    {
+        [m_nsWindow deminiaturize: nil];
         PumpWindowEventsUntilEmpty();
     }
 }
@@ -193,6 +239,8 @@ void WindowMacOS::FullScreenEnable()
     {
         return;
     }
+
+    Maximize();
 
     assert(!m_isTransitioning);
     m_isTransitioning = true;
@@ -265,7 +313,7 @@ bool WindowMacOS::IsFullScreen() const
 //--------------------------------------------------------------
 bool WindowMacOS::IsMaximized() const
 {
-    return m_nsWindow.isZoomed;
+    return m_nsWindow.isZoomed && !m_nsWindow.isMiniaturized;
 }
 
 //--------------------------------------------------------------

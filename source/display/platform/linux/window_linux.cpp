@@ -35,6 +35,7 @@ protected:
 
     void Maximize() override;
     void Minimize() override;
+    void Restore() override;
 
     void FullScreenEnable() override;
     void FullScreenDisable() override;
@@ -237,8 +238,8 @@ void WindowLinux::Hide()
         return;
     }
 
-    // Disable full screen.
-    FullScreenDisable();
+    // Restore the native window.
+    Restore();
 
     // Hide the native window.
     AssertSucceeded(XUnmapWindow(m_xDisplay, m_xWindow));
@@ -264,7 +265,7 @@ void WindowLinux::Close()
 //--------------------------------------------------------------
 void WindowLinux::Maximize()
 {
-    if (!IsVisible() || m_isClosed)
+    if (IsMaximized() || !IsVisible() || m_isClosed)
     {
         return;
     }
@@ -292,7 +293,7 @@ void WindowLinux::Maximize()
 //--------------------------------------------------------------
 void WindowLinux::Minimize()
 {
-    if (!IsVisible() || m_isClosed)
+    if (IsMinimized() || !IsVisible() || m_isClosed)
     {
         return;
     }
@@ -309,10 +310,57 @@ void WindowLinux::Minimize()
 }
 
 //--------------------------------------------------------------
+void WindowLinux::Restore()
+{
+    if (!IsVisible() || m_isClosed)
+    {
+        return;
+    }
+
+    if (IsFullScreen())
+    {
+        FullScreenDisable();
+    }
+
+    if (IsMaximized())
+    {
+        // Restore the native window.
+        XEvent restoreEvent;
+        restoreEvent.type = ClientMessage;
+        restoreEvent.xclient.window = m_xWindow;
+        restoreEvent.xclient.message_type = m_xStateAtom;
+        restoreEvent.xclient.format = 32;
+        restoreEvent.xclient.data.l[0] = 0; // Remove property
+        restoreEvent.xclient.data.l[1] = m_xStateMaxHorzAtom;
+        restoreEvent.xclient.data.l[2] = m_xStateMaxVertAtom;
+        AssertSucceeded(XSendEvent(m_xDisplay,
+                                   DefaultRootWindow(m_xDisplay),
+                                   False,
+                                   SubstructureNotifyMask | SubstructureRedirectMask,
+                                   &restoreEvent));
+        AssertSucceeded(XFlush(m_xDisplay));
+
+        // Wait for the native window to restore.
+        while (IsMaximized()) {}
+    }
+
+    if (IsMinimized())
+    {
+        // Restore the native window.
+        // ToDo: How to restore from iconified/minimized?
+
+        // Wait for the native window to restore.
+        // ToDo: IsMinimized doesn't work.
+        // while (IsMinimized()) {}
+    }
+}
+
+//--------------------------------------------------------------
 void WindowLinux::FullScreenEnable()
 {
     if (!IsFullScreen())
     {
+        Maximize();
         FullScreen(True);
     }
 }

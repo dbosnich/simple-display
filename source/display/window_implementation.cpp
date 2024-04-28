@@ -81,6 +81,17 @@ void Window::Minimize()
 }
 
 //--------------------------------------------------------------
+//! Restore the window from maximized/minimzed/full screen state.
+//--------------------------------------------------------------
+void Window::Restore()
+{
+    if (m_pimpl)
+    {
+        m_pimpl->Restore();
+    }
+}
+
+//--------------------------------------------------------------
 //! Enable full screen so the window contents fill the display.
 //--------------------------------------------------------------
 void Window::FullScreenEnable()

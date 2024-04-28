@@ -36,6 +36,7 @@ protected:
 
     void Maximize() override;
     void Minimize() override;
+    void Restore() override;
 
     void FullScreenEnable() override;
     void FullScreenDisable() override;
@@ -121,8 +122,8 @@ WindowWin32::WindowWin32(const Window::Config& a_config)
 //--------------------------------------------------------------
 WindowWin32::~WindowWin32()
 {
-    // Destroy the native window.
-    ::DestroyWindow(m_windowHandle);
+    // Close the native window.
+    Close();
 
     // Unregister the native window class.
     if (::InterlockedDecrement(&s_instanceCount) == 0)
@@ -152,8 +153,8 @@ void WindowWin32::Hide()
         return;
     }
 
-    // Disable full screen.
-    FullScreenDisable();
+    // Restore the native window.
+    Restore();
 
     // Hide the native window.
     ::ShowWindow(m_windowHandle, SW_HIDE);
@@ -168,8 +169,8 @@ void WindowWin32::Close()
         return;
     }
 
-    // Disable full screen.
-    FullScreenDisable();
+    // Hide the native window.
+    Hide();
 
     // Destroy the native window.
     m_isClosed = ::DestroyWindow(m_windowHandle);
@@ -178,13 +179,46 @@ void WindowWin32::Close()
 //--------------------------------------------------------------
 void WindowWin32::Maximize()
 {
+    if (IsMaximized() || !m_isVisible || m_isClosed)
+    {
+        return;
+    }
+
     ::SendMessageW(m_windowHandle, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
 }
 
 //--------------------------------------------------------------
 void WindowWin32::Minimize()
 {
+    if (IsMinimized() || !m_isVisible || m_isClosed)
+    {
+        return;
+    }
+
+    if (IsFullScreen())
+    {
+        FullScreenDisable();
+    }
+
     ::SendMessageW(m_windowHandle, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+}
+
+//--------------------------------------------------------------
+void WindowWin32::Restore()
+{
+    if (!m_isVisible || m_isClosed)
+    {
+        return;
+    }
+
+    if (IsFullScreen())
+    {
+        FullScreenDisable();
+    }
+    else if (IsMaximized() || IsMinimized())
+    {
+        ::SendMessageW(m_windowHandle, WM_SYSCOMMAND, SC_RESTORE, 0);
+    }
 }
 
 //--------------------------------------------------------------

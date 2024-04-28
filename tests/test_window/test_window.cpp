@@ -92,9 +92,27 @@ TEST_CASE("Test Window Maximize", "[window][maximize]")
     Window testWindow({});
     testWindow.Show();
     REQUIRE(testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMaximized());
 
     testWindow.Maximize();
+    REQUIRE(testWindow.IsVisible());
     REQUIRE(testWindow.IsMaximized());
+
+    testWindow.Hide();
+    REQUIRE(!testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMaximized());
+
+    testWindow.Show();
+    REQUIRE(testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMaximized());
+
+    testWindow.Maximize();
+    REQUIRE(testWindow.IsVisible());
+    REQUIRE(testWindow.IsMaximized());
+
+    testWindow.Close();
+    REQUIRE(!testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMaximized());
 }
 
 //--------------------------------------------------------------
@@ -103,29 +121,158 @@ TEST_CASE("Test Window Minimize", "[window][minimize]")
     Window testWindow({});
     testWindow.Show();
     REQUIRE(testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMinimized());
 
     testWindow.Minimize();
+    REQUIRE(testWindow.IsVisible());
     REQUIRE(testWindow.IsMinimized());
+
+    testWindow.Hide();
+    REQUIRE(!testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMinimized());
+
+    testWindow.Show();
+    REQUIRE(testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMinimized());
+
+    testWindow.Minimize();
+    REQUIRE(testWindow.IsVisible());
+    REQUIRE(testWindow.IsMinimized());
+
+    testWindow.Close();
+    REQUIRE(!testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMinimized());
 }
 
 //--------------------------------------------------------------
-TEST_CASE("Test Window Maximize Minimize", "[window][maximize][minimize]")
+TEST_CASE("Test Window Restore", "[window][restore]")
 {
     Window testWindow({});
     testWindow.Show();
     REQUIRE(testWindow.IsVisible());
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
 
     testWindow.Maximize();
     REQUIRE(testWindow.IsMaximized());
     REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
 
     testWindow.Minimize();
-    REQUIRE(testWindow.IsMinimized());
     REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.FullScreenEnable();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
 
     testWindow.Maximize();
     REQUIRE(testWindow.IsMaximized());
     REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Minimize();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Minimize();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Maximize();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Maximize();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.FullScreenEnable();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Minimize();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.FullScreenEnable();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.FullScreenEnable();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Minimize();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.FullScreenEnable();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Maximize();
+    REQUIRE(testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Restore();
+    REQUIRE(!testWindow.IsMaximized());
+    REQUIRE(!testWindow.IsMinimized());
+    REQUIRE(!testWindow.IsFullScreen());
 }
 
 //--------------------------------------------------------------
@@ -134,15 +281,35 @@ TEST_CASE("Test Window FullScreen", "[window][fullscreen]")
     Window testWindow({});
     testWindow.Show();
     REQUIRE(testWindow.IsVisible());
+    REQUIRE(!testWindow.IsFullScreen());
 
     testWindow.FullScreenEnable();
+    REQUIRE(testWindow.IsVisible());
     REQUIRE(testWindow.IsFullScreen());
 
     testWindow.FullScreenDisable();
+    REQUIRE(testWindow.IsVisible());
     REQUIRE(!testWindow.IsFullScreen());
 
     testWindow.FullScreenToggle();
+    REQUIRE(testWindow.IsVisible());
     REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Hide();
+    REQUIRE(!testWindow.IsVisible());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.Show();
+    REQUIRE(testWindow.IsVisible());
+    REQUIRE(!testWindow.IsFullScreen());
+
+    testWindow.FullScreenEnable();
+    REQUIRE(testWindow.IsVisible());
+    REQUIRE(testWindow.IsFullScreen());
+
+    testWindow.Close();
+    REQUIRE(!testWindow.IsVisible());
+    REQUIRE(!testWindow.IsFullScreen());
 }
 
 //--------------------------------------------------------------

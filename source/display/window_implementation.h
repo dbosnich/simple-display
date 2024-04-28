@@ -36,6 +36,7 @@ protected:
 
     virtual void Maximize() = 0;
     virtual void Minimize() = 0;
+    virtual void Restore() = 0;
 
     virtual void FullScreenEnable() = 0;
     virtual void FullScreenDisable() = 0;

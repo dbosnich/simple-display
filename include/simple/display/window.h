@@ -79,6 +79,7 @@ public:
 
     void Maximize();
     void Minimize();
+    void Restore();
 
     void FullScreenEnable();
     void FullScreenDisable();
