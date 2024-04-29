@@ -33,22 +33,22 @@ set(TARGET_PLATFORM_SUFFIX ${PLATFORM_SUFFIX_${CMAKE_SYSTEM_NAME}})
 # Filter platform agnostic source files.
 set(source_files_platform_agnostic ${source_files})
 list(FILTER source_files_platform_agnostic
-     EXCLUDE REGEX "/*/platform/*")
+     EXCLUDE REGEX "/.*/platform/.*")
 
 # Filter platform specific source files.
 set(source_files_platform_specific ${source_files})
 list(FILTER source_files_platform_specific
-     INCLUDE REGEX "/*/platform/*")
+     INCLUDE REGEX "/.*/platform/.*")
 
 # Filter target platform source files.
 set(source_files_platform_target ${source_files_platform_specific})
 list(FILTER source_files_platform_target
-     INCLUDE REGEX "/*/${TARGET_PLATFORM_SUFFIX}/*")
+     INCLUDE REGEX "/.*/platform/${TARGET_PLATFORM_SUFFIX}/.*")
 
 # Filter other platform specific files.
 set(source_files_platform_other ${source_files_platform_specific})
 list(FILTER source_files_platform_other
-     EXCLUDE REGEX "/*/${TARGET_PLATFORM_SUFFIX}/*")
+     EXCLUDE REGEX "/.*/platform/${TARGET_PLATFORM_SUFFIX}/.*")
 
 # Define the library (static).
 add_library(${LIB_TARGET} STATIC ${source_files_platform_agnostic}
