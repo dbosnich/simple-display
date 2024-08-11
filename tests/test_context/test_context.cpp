@@ -105,6 +105,12 @@ void TestApplication::StartUp()
 {
     // Create the display context.
     m_context = new Context(m_testParams.contextConfig);
+
+    // Shut down immediately if there is no display buffer.
+    if (!m_context->GetBuffer().GetData())
+    {
+        RequestShutDown();
+    }
 }
 
 //--------------------------------------------------------------

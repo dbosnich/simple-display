@@ -79,6 +79,7 @@ private:
     public:
         ThreadLocalDisplay()
         {
+            X11_ENSURE(XInitThreads());
             m_display = XOpenDisplay(nullptr);
             XLockDisplay(m_display);
         }
