@@ -19,7 +19,6 @@ struct TestParams
 {
     Context::Config contextConfig;
     float secondsToRunFor = 5.0f;
-    bool bufferQuadrants = true;
     bool cappedTargetFPS = false;
     bool printFrameStats = false;
     bool printAtShutDown = true;
@@ -48,8 +47,7 @@ private:
                                 bool a_atShutDown = false);
 
     template<typename BufferType>
-    void CycleColors(const BufferType* const a_colors[4],
-                     int a_numColors);
+    void CycleColors(const BufferType a_colors[4][4]);
 
     const TestParams m_testParams;
     Context* m_context = nullptr;
@@ -66,7 +64,7 @@ void SetWindowTitle(Context::Config& a_contextConfig)
         case Context::GraphicsAPI::NATIVE: graphicsAPI = "GraphicsAPI::NATIVE"; break;
         case Context::GraphicsAPI::OPENGL: graphicsAPI = "GraphicsAPI::OPENGL"; break;
         case Context::GraphicsAPI::VULKAN: graphicsAPI = "GraphicsAPI::VULKAN"; break;
-        default: graphicsAPI = "NONE"; break;
+        default: graphicsAPI = "GraphicsAPI::NONE"; break;
     }
 
     string format;
@@ -75,10 +73,19 @@ void SetWindowTitle(Context::Config& a_contextConfig)
         case Buffer::Format::RGBA_FLOAT: format = "Format::RGBA_FLOAT"; break;
         case Buffer::Format::RGBA_UINT8: format = "Format::RGBA_UINT8"; break;
         case Buffer::Format::RGBA_UINT16: format = "Format::RGBA_UINT16"; break;
-        default: format = "NONE"; break;
+        default: format = "Format::NONE"; break;
     }
 
-    a_contextConfig.windowConfig.titleUTF8 = graphicsAPI + " " + format;
+    string interop;
+    switch (a_contextConfig.bufferConfig.interop)
+    {
+        case Buffer::Interop::HOST: interop = "Interop::HOST"; break;
+        case Buffer::Interop::CUDA: interop = "Interop::CUDA"; break;
+        default: interop = "Interop::NONE"; break;
+    }
+
+    const string title = graphicsAPI + " " + format + " " + interop;
+    a_contextConfig.windowConfig.titleUTF8 = title;
 }
 
 //--------------------------------------------------------------
@@ -152,33 +159,29 @@ void TestApplication::UpdatePixelBuffer()
     {
         case Buffer::Format::RGBA_FLOAT:
         {
-            static constexpr float RED[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
-            static constexpr float GREEN[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
-            static constexpr float BLUE[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
-            static constexpr float BLACK[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-            static constexpr const float* COLORS[4] = { RED, GREEN, BLUE, BLACK };
-            CycleColors<float>(COLORS, 4);
+            constexpr float COLORS[4][4] = { { 1.0f, 0.0f, 0.0f, 1.0f },
+                                             { 0.0f, 1.0f, 0.0f, 1.0f },
+                                             { 0.0f, 0.0f, 1.0f, 1.0f },
+                                             { 0.0f, 0.0f, 0.0f, 1.0f } };
+            CycleColors<float>(COLORS);
         }
         break;
         case Buffer::Format::RGBA_UINT8:
         {
-            static constexpr uint8_t RED[4] = { 255, 0, 0, 255 };
-            static constexpr uint8_t GREEN[4] = { 0, 255, 0, 255 };
-            static constexpr uint8_t BLUE[4] = { 0, 0, 255, 255 };
-            static constexpr uint8_t BLACK[4] = { 0, 0, 0, 255 };
-            static constexpr const uint8_t* COLORS[4] = { RED, GREEN, BLUE, BLACK };
-            CycleColors<uint8_t>(COLORS, 4);
+            constexpr uint8_t COLORS[4][4] = { { UINT8_MAX, 0, 0, UINT8_MAX },
+                                               { 0, UINT8_MAX, 0, UINT8_MAX },
+                                               { 0, 0, UINT8_MAX, UINT8_MAX },
+                                               { 0, 0, 0, UINT8_MAX } };
+            CycleColors<uint8_t>(COLORS);
         }
         break;
         case Buffer::Format::RGBA_UINT16:
         {
-            static constexpr uint16_t MAX = numeric_limits<uint16_t>::max();
-            static constexpr uint16_t RED[4] = { MAX, 0, 0, MAX };
-            static constexpr uint16_t GREEN[4] = { 0, MAX, 0, MAX };
-            static constexpr uint16_t BLUE[4] = { 0, 0, MAX, MAX };
-            static constexpr uint16_t BLACK[4] = { 0, 0, 0, MAX };
-            static constexpr const uint16_t* COLORS[4] = { RED, GREEN, BLUE, BLACK };
-            CycleColors<uint16_t>(COLORS, 4);
+            constexpr uint16_t COLORS[4][4] = { { UINT16_MAX, 0, 0, UINT16_MAX },
+                                                { 0, UINT16_MAX, 0, UINT16_MAX },
+                                                { 0, 0, UINT16_MAX, UINT16_MAX },
+                                                { 0, 0, 0, UINT16_MAX } };
+            CycleColors<uint16_t>(COLORS);
         }
         break;
         default:
@@ -190,68 +193,79 @@ void TestApplication::UpdatePixelBuffer()
 
 //--------------------------------------------------------------
 template<typename BufferType>
-void TestApplication::CycleColors(const BufferType* const a_colors[4],
-                                  int a_numColors)
+void CycleColorsHost(const BufferType a_colors[4][4],
+                     const Buffer& a_buffer,
+                     float a_secondsElapsed)
 {
-    Buffer& buffer = m_context->GetBuffer();
-    BufferType* pixelBuffer = buffer.GetData<BufferType>();
+    BufferType* pixelBuffer = a_buffer.GetData<BufferType>();
     if (!pixelBuffer)
     {
         return;
     }
 
-    if (m_testParams.bufferQuadrants)
-    {
-        // Change the color of each quadrant every second.
-        const int topLeftIndex = (int)m_secondsElapsed % 4;
-        const int topRightIndex = (topLeftIndex == 3) ? 0 : topLeftIndex + 1;
-        const int bottomLeftIndex = (topRightIndex == 3) ? 0 : topRightIndex + 1;
-        const int bottomRightIndex = (bottomLeftIndex == 3) ? 0 : bottomLeftIndex + 1;
-        const BufferType* colorTopLeft = a_colors[topLeftIndex];
-        const BufferType* colorTopRight = a_colors[topRightIndex];
-        const BufferType* colorBottomLeft = a_colors[bottomLeftIndex];
-        const BufferType* colorBottomRight = a_colors[bottomRightIndex];
+    // Change the color of each quadrant every second.
+    const int topLeftIndex = (int)a_secondsElapsed % 4;
+    const int topRightIndex = (topLeftIndex == 3) ? 0 : topLeftIndex + 1;
+    const int bottomLeftIndex = (topRightIndex == 3) ? 0 : topRightIndex + 1;
+    const int bottomRightIndex = (bottomLeftIndex == 3) ? 0 : bottomLeftIndex + 1;
 
-        const uint32_t pixelWidth = buffer.GetWidth();
-        const uint32_t pixelHeight = buffer.GetHeight();
-        const uint32_t numChannels = Buffer::ChannelsPerPixel(buffer.GetFormat());
-        for (uint32_t y = 0; y < pixelHeight; ++y)
+    const BufferType* colorTopLeft = a_colors[topLeftIndex];
+    const BufferType* colorTopRight = a_colors[topRightIndex];
+    const BufferType* colorBottomLeft = a_colors[bottomLeftIndex];
+    const BufferType* colorBottomRight = a_colors[bottomRightIndex];
+
+    const uint32_t pixelWidth = a_buffer.GetWidth();
+    const uint32_t pixelHeight = a_buffer.GetHeight();
+    const uint32_t numChannels = Buffer::ChannelsPerPixel(a_buffer.GetFormat());
+    for (uint32_t y = 0; y < pixelHeight; ++y)
+    {
+        for (uint32_t x = 0; x < pixelWidth; ++x)
         {
-            for (uint32_t x = 0; x < pixelWidth; ++x)
+            const uint32_t quadrant = (x > (pixelWidth / 2)) + (2 * (y > (pixelHeight / 2)));
+            const BufferType* color = colorTopLeft;
+            switch (quadrant)
             {
-                const uint32_t quadrant = (x > (pixelWidth / 2)) + (2 * (y > (pixelHeight / 2)));
-                const BufferType* color = colorTopLeft;
-                switch (quadrant)
-                {
-                    case 0: color = colorBottomLeft; break;
-                    case 1: color = colorBottomRight; break;
-                    case 2: color = colorTopLeft; break;
-                    case 3: color = colorTopRight; break;
-                }
-                const uint32_t i = (x * numChannels) + (y * pixelWidth * numChannels);
-                for (uint32_t z = 0; z < numChannels; ++z)
-                {
-                    pixelBuffer[i + z] = color[z];
-                }
+                case 0: color = colorBottomLeft; break;
+                case 1: color = colorBottomRight; break;
+                case 2: color = colorTopLeft; break;
+                case 3: color = colorTopRight; break;
+            }
+            const uint32_t i = (x * numChannels) + (y * pixelWidth * numChannels);
+            for (uint32_t z = 0; z < numChannels; ++z)
+            {
+                pixelBuffer[i + z] = color[z];
             }
         }
     }
-    else
-    {
-        // Change the color of the entire buffer every second.
-        const uint32_t index = (uint32_t)m_secondsElapsed % a_numColors;
-        const BufferType* color = a_colors[index];
+}
 
-        const uint32_t numChannelsPerPixel = Buffer::ChannelsPerPixel(buffer.GetFormat());
-        const uint32_t totalPixels = buffer.GetWidth() * buffer.GetHeight();
-        const uint32_t totalChannels = totalPixels * numChannelsPerPixel;
-        for (uint32_t i = 0; i < totalChannels; i += numChannelsPerPixel)
-        {
-            for (uint32_t j = 0; j < numChannelsPerPixel; ++j)
-            {
-                pixelBuffer[i + j] = color[j];
-            }
-        }
+//--------------------------------------------------------------
+#ifdef CUDA_SUPPORTED
+extern void CycleColorsCuda(const float a_colors[4][4],
+                            const Buffer& a_buffer,
+                            float a_secondsElapsed);
+extern void CycleColorsCuda(const uint8_t a_colors[4][4],
+                            const Buffer& a_buffer,
+                            float a_secondsElapsed);
+extern void CycleColorsCuda(const uint16_t a_colors[4][4],
+                            const Buffer& a_buffer,
+                            float a_secondsElapsed);
+#endif // CUDA_SUPPORTED
+
+//--------------------------------------------------------------
+template<typename BufferType>
+void TestApplication::CycleColors(const BufferType a_colors[4][4])
+{
+    const Buffer& buffer = m_context->GetBuffer();
+    if (buffer.GetInterop() == Buffer::Interop::HOST)
+    {
+        CycleColorsHost(a_colors, buffer, m_secondsElapsed);
+    }
+    else if (buffer.GetInterop() == Buffer::Interop::CUDA)
+    {
+    #ifdef CUDA_SUPPORTED
+        CycleColorsCuda(a_colors, buffer, m_secondsElapsed);
+    #endif // CUDA_SUPPORTED
     }
 }
 
@@ -308,90 +322,237 @@ void TestApplication::PrintFrameStats(const FrameStats& a_stats,
 }
 
 //--------------------------------------------------------------
-TEST_CASE("Test Context RGBA_FLOAT", "[context][rgba_float]")
+void TestContext(TestParams a_testParams)
 {
-    TestParams testParams;
-    testParams.contextConfig.bufferConfig.format = Buffer::Format::RGBA_FLOAT;
+    Context::Config& contextConfig = a_testParams.contextConfig;
+    Buffer::Config& bufferConfig = contextConfig.bufferConfig;
+    SECTION("Format::RGBA_FLOAT")
+    {
+        bufferConfig.format = Buffer::Format::RGBA_FLOAT;
+    }
+    SECTION("Format::RGBA_UINT8")
+    {
+        bufferConfig.format = Buffer::Format::RGBA_UINT8;
+    }
+    SECTION("Format::RGBA_UINT16")
+    {
+        bufferConfig.format = Buffer::Format::RGBA_UINT16;
+    }
 
-    TestApplication testApplication(testParams);
+    TestApplication testApplication(a_testParams);
     testApplication.Run();
 }
 
 //--------------------------------------------------------------
-TEST_CASE("Test Context RGBA_UINT8", "[context][rgba_uint8]")
+TEST_CASE("Test Context Native Host", "[context][native][host]")
 {
     TestParams testParams;
-    testParams.contextConfig.bufferConfig.format = Buffer::Format::RGBA_UINT8;
-
-    TestApplication testApplication(testParams);
-    testApplication.Run();
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::NATIVE;
+    contextConfig.bufferConfig.interop = Buffer::Interop::HOST;
+    TestContext(testParams);
 }
 
 //--------------------------------------------------------------
-TEST_CASE("Test Context RGBA_UINT16", "[context][rgba_uint16]")
+TEST_CASE("Test Context Native CUDA", "[context][native][cuda]")
 {
     TestParams testParams;
-    testParams.contextConfig.bufferConfig.format = Buffer::Format::RGBA_UINT16;
-
-    TestApplication testApplication(testParams);
-    testApplication.Run();
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::NATIVE;
+    contextConfig.bufferConfig.interop = Buffer::Interop::CUDA;
+    TestContext(testParams);
 }
 
 //--------------------------------------------------------------
-TEST_CASE("Test Context Thread", "[context][thread]")
+TEST_CASE("Test Context OpenGL Host", "[context][opengl][host]")
 {
     TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::OPENGL;
+    contextConfig.bufferConfig.interop = Buffer::Interop::HOST;
+    TestContext(testParams);
+}
 
-    testParams.contextConfig.bufferConfig.format = Buffer::Format::RGBA_FLOAT;
-    testParams.secondsToRunFor = 3.0f;
-    TestApplication testApplication1(testParams);
+//--------------------------------------------------------------
+TEST_CASE("Test Context OpenGL CUDA", "[context][opengl][cuda]")
+{
+    TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::OPENGL;
+    contextConfig.bufferConfig.interop = Buffer::Interop::CUDA;
+    TestContext(testParams);
+}
 
-    testParams.contextConfig.bufferConfig.format = Buffer::Format::RGBA_UINT8;
-    testParams.secondsToRunFor = 4.5f;
-    TestApplication testApplication2(testParams);
+//--------------------------------------------------------------
+TEST_CASE("Test Context Vulkan Host", "[context][vulkan][host]")
+{
+    TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::VULKAN;
+    contextConfig.bufferConfig.interop = Buffer::Interop::HOST;
+    TestContext(testParams);
+}
 
-    testParams.contextConfig.bufferConfig.format = Buffer::Format::RGBA_UINT16;
-    testParams.secondsToRunFor = 6.0f;
-    TestApplication testApplication3(testParams);
+//--------------------------------------------------------------
+TEST_CASE("Test Context Vulkan CUDA", "[context][vulkan][cuda]")
+{
+    TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::VULKAN;
+    contextConfig.bufferConfig.interop = Buffer::Interop::CUDA;
+    TestContext(testParams);
+}
+
+//--------------------------------------------------------------
+void TestContextThreads(TestParams a_testParams)
+{
+    Context::Config& contextConfig = a_testParams.contextConfig;
+    Buffer::Config& bufferConfig = contextConfig.bufferConfig;
+    Window::Config& windowConfig = contextConfig.windowConfig;
+
+    bufferConfig.format = Buffer::Format::RGBA_FLOAT;
+    bufferConfig.interop = Buffer::Interop::HOST;
+    windowConfig.initialPositionX = 100;
+    windowConfig.initialPositionY = 100;
+    a_testParams.secondsToRunFor = 1.0f;
+    TestApplication testApplication1(a_testParams);
+
+    bufferConfig.format = Buffer::Format::RGBA_FLOAT;
+    bufferConfig.interop = Buffer::Interop::CUDA;
+    windowConfig.initialPositionX = 200;
+    windowConfig.initialPositionY = 200;
+    a_testParams.secondsToRunFor = 2.0f;
+    TestApplication testApplication2(a_testParams);
+
+    bufferConfig.format = Buffer::Format::RGBA_UINT8;
+    bufferConfig.interop = Buffer::Interop::HOST;
+    windowConfig.initialPositionX = 300;
+    windowConfig.initialPositionY = 300;
+    a_testParams.secondsToRunFor = 3.0f;
+    TestApplication testApplication3(a_testParams);
+
+    bufferConfig.format = Buffer::Format::RGBA_UINT8;
+    bufferConfig.interop = Buffer::Interop::CUDA;
+    windowConfig.initialPositionX = 400;
+    windowConfig.initialPositionY = 400;
+    a_testParams.secondsToRunFor = 4.0f;
+    TestApplication testApplication4(a_testParams);
+
+    bufferConfig.format = Buffer::Format::RGBA_UINT16;
+    bufferConfig.interop = Buffer::Interop::HOST;
+    windowConfig.initialPositionX = 500;
+    windowConfig.initialPositionY = 500;
+    a_testParams.secondsToRunFor = 5.0f;
+    TestApplication testApplication5(a_testParams);
+
+    bufferConfig.format = Buffer::Format::RGBA_UINT16;
+    bufferConfig.interop = Buffer::Interop::CUDA;
+    windowConfig.initialPositionX = 600;
+    windowConfig.initialPositionY = 600;
+    a_testParams.secondsToRunFor = 6.0f;
+    TestApplication testApplication6(a_testParams);
 
     thread runThread1 = testApplication1.RunInThread();
     thread runThread2 = testApplication2.RunInThread();
     thread runThread3 = testApplication3.RunInThread();
+    thread runThread4 = testApplication4.RunInThread();
+    thread runThread5 = testApplication5.RunInThread();
+    thread runThread6 = testApplication6.RunInThread();
 
     runThread1.join();
     runThread2.join();
     runThread3.join();
+    runThread4.join();
+    runThread5.join();
+    runThread6.join();
 }
 
 //--------------------------------------------------------------
-TEST_CASE("Test Context Graphics API", "[context][graphics_api]")
+TEST_CASE("Test Context Native Threads", "[context][native][threads]")
 {
     TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::NATIVE;
+    TestContextThreads(testParams);
+}
 
-    testParams.contextConfig.graphicsAPI = Context::GraphicsAPI::NATIVE;
-    testParams.secondsToRunFor = 2.0f;
+//--------------------------------------------------------------
+TEST_CASE("Test Context OpenGL Threads", "[context][opengl][threads]")
+{
+    TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::OPENGL;
+    TestContextThreads(testParams);
+}
+
+//--------------------------------------------------------------
+TEST_CASE("Test Context Vulkan Threads", "[context][vulkan][threads]")
+{
+    TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::VULKAN;
+    TestContextThreads(testParams);
+}
+
+//--------------------------------------------------------------
+TEST_CASE("Test Context All Threads", "[context][all][threads]")
+{
+    // Note: This test sometimes produces sporadic errors which
+    // seem to indicate running multiple different GraphicsAPIs
+    // at the same time may be causing memory stomps/overwites?
+
+    TestParams testParams;
+    Context::Config& contextConfig = testParams.contextConfig;
+    Buffer::Config& bufferConfig = contextConfig.bufferConfig;
+    Window::Config& windowConfig = contextConfig.windowConfig;
+
+    contextConfig.graphicsAPI = Context::GraphicsAPI::NATIVE;
+    bufferConfig.interop = Buffer::Interop::HOST;
+    windowConfig.initialPositionX = 100;
+    windowConfig.initialPositionY = 100;
     TestApplication testApplication1(testParams);
 
-    testParams.contextConfig.graphicsAPI = Context::GraphicsAPI::OPENGL;
-    testParams.secondsToRunFor = 2.0f;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::OPENGL;
+    bufferConfig.interop = Buffer::Interop::HOST;
+    windowConfig.initialPositionX = 200;
+    windowConfig.initialPositionY = 200;
     TestApplication testApplication2(testParams);
 
-    testParams.contextConfig.graphicsAPI = Context::GraphicsAPI::VULKAN;
-    testParams.secondsToRunFor = 2.0f;
+    contextConfig.graphicsAPI = Context::GraphicsAPI::VULKAN;
+    bufferConfig.interop = Buffer::Interop::HOST;
+    windowConfig.initialPositionX = 300;
+    windowConfig.initialPositionY = 300;
     TestApplication testApplication3(testParams);
 
-    // MacOS display contexts can only run on the main thread.
-#ifdef __APPLE__
-    testApplication1.Run();
-    testApplication2.Run();
-    testApplication3.Run();
-#else
+    contextConfig.graphicsAPI = Context::GraphicsAPI::NATIVE;
+    bufferConfig.interop = Buffer::Interop::CUDA;
+    windowConfig.initialPositionX = 400;
+    windowConfig.initialPositionY = 400;
+    TestApplication testApplication4(testParams);
+
+    contextConfig.graphicsAPI = Context::GraphicsAPI::OPENGL;
+    bufferConfig.interop = Buffer::Interop::CUDA;
+    windowConfig.initialPositionX = 500;
+    windowConfig.initialPositionY = 500;
+    TestApplication testApplication5(testParams);
+
+    contextConfig.graphicsAPI = Context::GraphicsAPI::VULKAN;
+    bufferConfig.interop = Buffer::Interop::CUDA;
+    windowConfig.initialPositionX = 600;
+    windowConfig.initialPositionY = 600;
+    TestApplication testApplication6(testParams);
+
     thread runThread1 = testApplication1.RunInThread();
     thread runThread2 = testApplication2.RunInThread();
     thread runThread3 = testApplication3.RunInThread();
+    thread runThread4 = testApplication4.RunInThread();
+    thread runThread5 = testApplication5.RunInThread();
+    thread runThread6 = testApplication6.RunInThread();
 
     runThread1.join();
     runThread2.join();
     runThread3.join();
-#endif // __APPLE__
+    runThread4.join();
+    runThread5.join();
+    runThread6.join();
 }

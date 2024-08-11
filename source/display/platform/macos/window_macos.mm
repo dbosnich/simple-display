@@ -86,8 +86,8 @@ WindowMacOS::WindowMacOS(const Window::Config& a_config)
         [NSApp setActivationPolicy: NSApplicationActivationPolicyRegular];
 
         // Setup the window.
-        NSRect windowRect = NSMakeRect(0,
-                                       0,
+        NSRect windowRect = NSMakeRect(a_config.initialPositionX,
+                                       a_config.initialPositionY,
                                        a_config.initialWidth,
                                        a_config.initialHeight);
         NSWindowStyleMask windowStyle = NSWindowStyleMaskTitled |

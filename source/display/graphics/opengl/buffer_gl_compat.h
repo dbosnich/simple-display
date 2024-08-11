@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <display/graphics/opengl/buffer_gl_common.h>
+#include <display/graphics/opengl/buffer_gl.h>
 
 #include <assert.h>
 
@@ -21,7 +21,7 @@ namespace OpenGL
 {
 
 //--------------------------------------------------------------
-class BufferGLCompat : public BufferGLCommon
+class BufferGLCompat : public BufferGL
 {
 public:
     BufferGLCompat(const Buffer::Config& a_config);

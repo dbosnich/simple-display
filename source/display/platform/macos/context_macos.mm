@@ -9,11 +9,11 @@
 #include "context_macos_mt.h"
 
 #ifdef OPENGL_SUPPORTED
-#include "context_macos_gl.h"
+#   include "context_macos_gl.h"
 #endif
 
 #ifdef VULKAN_SUPPORTED
-#include "context_macos_vk.h"
+#   include "context_macos_vk.h"
 #endif
 
 #import <Foundation/NSThread.h>
@@ -35,6 +35,16 @@ ImplPtr Context::Implementation::Create(const Config& a_config)
                "be created from the main (UI) thread.\n\n");
         return nullptr;
     }
+
+#ifndef CUDA_SUPPORTED
+    if (a_config.bufferConfig.interop == Buffer::Interop::CUDA)
+    {
+        printf("Cannot create buffer data with CUDA interop.\n"
+               "Please ensure the SimpleDisplay library was \n"
+               "built with a valid CUDAToolkit installation.\n\n");
+        return nullptr;
+    }
+#endif
 
     switch (a_config.graphicsAPI)
     {

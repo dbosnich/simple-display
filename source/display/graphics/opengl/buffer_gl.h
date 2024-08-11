@@ -19,14 +19,14 @@ namespace OpenGL
 {
 
 //--------------------------------------------------------------
-class BufferGLCommon : public Buffer::Implementation
+class BufferGL : public Buffer::Implementation
 {
 public:
-    BufferGLCommon() = default;
-    ~BufferGLCommon() override = default;
+    BufferGL() = default;
+    ~BufferGL() override = default;
 
-    BufferGLCommon(const BufferGLCommon&) = delete;
-    BufferGLCommon& operator=(const BufferGLCommon&) = delete;
+    BufferGL(const BufferGL&) = delete;
+    BufferGL& operator=(const BufferGL&) = delete;
 
 protected:
     void* GetData() const override;
@@ -35,6 +35,7 @@ protected:
     uint32_t GetWidth() const override;
     uint32_t GetHeight() const override;
     Buffer::Format GetFormat() const override;
+    Buffer::Interop GetInterop() const override;
 
 protected:
     Buffer::Config m_config = Buffer::Config::Invalid();
@@ -42,39 +43,45 @@ protected:
 };
 
 //--------------------------------------------------------------
-inline void* BufferGLCommon::GetData() const
+inline void* BufferGL::GetData() const
 {
     return m_data;
 }
 
 //--------------------------------------------------------------
-inline uint32_t BufferGLCommon::GetSize() const
+inline uint32_t BufferGL::GetSize() const
 {
     return Buffer::MinSizeBytes(m_config);
 }
 
 //--------------------------------------------------------------
-inline uint32_t BufferGLCommon::GetPitch() const
+inline uint32_t BufferGL::GetPitch() const
 {
     return Buffer::MinPitchBytes(m_config);
 }
 
 //--------------------------------------------------------------
-inline uint32_t BufferGLCommon::GetWidth() const
+inline uint32_t BufferGL::GetWidth() const
 {
     return m_config.width;
 }
 
 //--------------------------------------------------------------
-inline uint32_t BufferGLCommon::GetHeight() const
+inline uint32_t BufferGL::GetHeight() const
 {
     return m_config.height;
 }
 
 //--------------------------------------------------------------
-inline Buffer::Format BufferGLCommon::GetFormat() const
+inline Buffer::Format BufferGL::GetFormat() const
 {
     return m_config.format;
+}
+
+//--------------------------------------------------------------
+inline Buffer::Interop BufferGL::GetInterop() const
+{
+    return m_config.interop;
 }
 
 //--------------------------------------------------------------

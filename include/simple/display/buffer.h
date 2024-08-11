@@ -27,11 +27,18 @@
 #endif//DEFAULT_BUFFER_HEIGHT
 
 //--------------------------------------------------------------
-//! The default pixel format of any display buffer type.
+//! The default pixel format of any display buffer.
 //--------------------------------------------------------------
 #ifndef DEFAULT_BUFFER_FORMAT
 #define DEFAULT_BUFFER_FORMAT Format::RGBA_UINT8
 #endif//DEFAULT_BUFFER_FORMAT
+
+//--------------------------------------------------------------
+//! The default memory interop of any display buffer.
+//--------------------------------------------------------------
+#ifndef DEFAULT_BUFFER_INTEROP
+#define DEFAULT_BUFFER_INTEROP Interop::HOST
+#endif//DEFAULT_BUFFER_INTEROP
 
 //--------------------------------------------------------------
 namespace Simple
@@ -65,6 +72,17 @@ public:
     };
 
     //----------------------------------------------------------
+    //! The type of interop used to map the display buffer data
+    //! and make it accessible for writing from the application.
+    //----------------------------------------------------------
+    enum class Interop
+    {
+        NONE = 0,   //!< None/unknown/invalid memory interop.
+        HOST,       //!< Data mapped to host process memory.
+        CUDA        //!< Data mapped to CUDA device memory.
+    };
+
+    //----------------------------------------------------------
     //! Values needed to define Simple::Display::Buffer objects.
     //----------------------------------------------------------
     struct Config
@@ -78,6 +96,10 @@ public:
         //! The pixel format describing the display buffer type.
         Format   format = DEFAULT_BUFFER_FORMAT;
 
+        //! The type of interop used to map the display buffer.
+        Interop  interop = DEFAULT_BUFFER_INTEROP;
+
+        //! An invalid buffer configuration.
         static Config Invalid();
     };
 
@@ -91,14 +113,16 @@ public:
     void Render(uint32_t a_displayWidth,
                 uint32_t a_displayHeight);
 
-    template<typename Type>
+    template<typename Type, Interop InteropType = Interop::HOST>
     Type* GetData() const;
+
     void* GetData() const;
     uint32_t GetSize() const;
     uint32_t GetPitch() const;
     uint32_t GetWidth() const;
     uint32_t GetHeight() const;
     Format   GetFormat() const;
+    Interop  GetInterop() const;
 
     static constexpr uint32_t MinSizeBytes(const Config&);
     static constexpr uint32_t MinPitchBytes(const Config&);
@@ -109,70 +133,6 @@ public:
 private:
     const std::unique_ptr<Implementation> m_pimpl;
 };
-
-//--------------------------------------------------------------
-//! An invalid buffer configuration.
-//!
-//! \return An invalid buffer configuration.
-//--------------------------------------------------------------
-inline Buffer::Config Buffer::Config::Invalid()
-{
-    return { 0, 0, Format::NONE };
-}
-
-//--------------------------------------------------------------
-//! Get the buffer data cast to an array of floatng point values.
-//!
-//! \return Buffer data cast to an array of floatng point values,
-//!         or nullptr if the data cannot be represented as such.
-//--------------------------------------------------------------
-template<> inline float* Buffer::GetData() const
-{
-    switch (GetFormat())
-    {
-        case Format::RGBA_FLOAT:
-        {
-            return static_cast<float*>(GetData());
-        }
-        default: return nullptr;
-    }
-}
-
-//--------------------------------------------------------------
-//! Get the buffer data cast to an array of 8 bit unsigned ints.
-//!
-//! \return Buffer data cast to an array of 8 bit unsigned ints,
-//!         or nullptr if the data cannot be represented as such.
-//--------------------------------------------------------------
-template<> inline uint8_t* Buffer::GetData() const
-{
-    switch (GetFormat())
-    {
-        case Format::RGBA_UINT8:
-        {
-            return static_cast<uint8_t*>(GetData());
-        }
-        default: return nullptr;
-    }
-}
-
-//--------------------------------------------------------------
-//! Get the buffer data cast to an array of 16 bit unsigned ints.
-//!
-//! \return Buffer data cast to an array of 16 bit unsigned ints,
-//!         or nullptr if the data cannot be represented as such.
-//--------------------------------------------------------------
-template<> inline uint16_t* Buffer::GetData() const
-{
-    switch (GetFormat())
-    {
-        case Format::RGBA_UINT16:
-        {
-            return static_cast<uint16_t*>(GetData());
-        }
-        default: return nullptr;
-    }
-}
 
 //--------------------------------------------------------------
 //! Calculate the min size in bytes required to store a buffer.

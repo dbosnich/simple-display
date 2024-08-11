@@ -11,29 +11,17 @@
 #include "context_linux_vk.h"
 
 #include <display/graphics/vulkan/buffer_vk.h>
+#include <display/graphics/vulkan/debug_vk.h>
 
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
-
-//--------------------------------------------------------------
-//! Controls whether any Vulkan debug messages should be output.
-//--------------------------------------------------------------
-#define VULKAN_DEBUG_NOTHING 0
-#define VULKAN_DEBUG_DEFAULT 1
-#define VULKAN_DEBUG_VERBOSE 2
-#ifndef VULKAN_DEBUG_SETTING
-#   ifdef NDEBUG
-#       define VULKAN_DEBUG_SETTING VULKAN_DEBUG_NOTHING
-#   else
-#       define VULKAN_DEBUG_SETTING VULKAN_DEBUG_DEFAULT
-#   endif
-#endif//VULKAN_DEBUG_SETTING
 
 using namespace Simple::Display;
 using namespace Simple::Display::Vulkan;
 
 //--------------------------------------------------------------
 void CreatePipelineContext(PipelineContext*& a_pipelineContext,
+                           const Buffer::Config& a_bufferConfig,
                            const Simple::Display::Window& a_window);
 void DestroyPipelineContext(PipelineContext*& a_pipelineContext);
 
@@ -44,13 +32,15 @@ ContextLinuxVK::ContextLinuxVK(const Context::Config& a_config)
     m_window = new Window(a_config.windowConfig);
 
     // Create the pipeline context.
-    CreatePipelineContext(m_pipelineContext, *m_window);
+    const Buffer::Config& bufferConfig = a_config.bufferConfig;
+    CreatePipelineContext(m_pipelineContext,
+                          bufferConfig,
+                          *m_window);
     assert(m_pipelineContext);
 
     // Create the buffer.
     using namespace std;
     using BufferImpl = BufferVK;
-    const Buffer::Config& bufferConfig = a_config.bufferConfig;
     m_buffer = new Buffer(make_unique<BufferImpl>(bufferConfig,
                                                   *m_pipelineContext));
 
@@ -167,6 +157,7 @@ void DestroyDebugMessenger(VkDebugUtilsMessengerEXT a_debugMessenger,
 
 //--------------------------------------------------------------
 void CreatePipelineContext(PipelineContext*& a_pipelineContext,
+                           const Buffer::Config& a_bufferConfig,
                            const Simple::Display::Window& a_window)
 {
     // Create the context.
@@ -177,6 +168,14 @@ void CreatePipelineContext(PipelineContext*& a_pipelineContext,
     std::vector<const char*> extensions;
     extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
     extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+    if (a_bufferConfig.interop == Buffer::Interop::CUDA)
+    {
+        extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+        a_pipelineContext->requiredDeviceExtensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
+        a_pipelineContext->requiredDeviceExtensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+        a_pipelineContext->externalMemoryHandleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    }
 #if VULKAN_DEBUG_SETTING
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
@@ -206,9 +205,9 @@ void CreatePipelineContext(PipelineContext*& a_pipelineContext,
 #endif
 
     // Create the instance.
-    AssertSucceeded(vkCreateInstance(&createInfo,
-                                     nullptr,
-                                     &a_pipelineContext->instance));
+    VULKAN_ENSURE(vkCreateInstance(&createInfo,
+                                   nullptr,
+                                   &a_pipelineContext->instance));
     assert(a_pipelineContext->instance);
 
     // Create the debug messenger.
@@ -240,10 +239,10 @@ void CreatePipelineContext(PipelineContext*& a_pipelineContext,
     surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
 
     // Create the surface.
-    AssertSucceeded(vkCreateXlibSurfaceKHR(a_pipelineContext->instance,
-                                           &surfaceCreateInfo,
-                                           nullptr,
-                                           &a_pipelineContext->surface));
+    VULKAN_ENSURE(vkCreateXlibSurfaceKHR(a_pipelineContext->instance,
+                                         &surfaceCreateInfo,
+                                         nullptr,
+                                         &a_pipelineContext->surface));
 }
 
 //--------------------------------------------------------------

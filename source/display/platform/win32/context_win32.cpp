@@ -9,11 +9,11 @@
 #include "context_win32_dx.h"
 
 #ifdef OPENGL_SUPPORTED
-#include "context_win32_gl.h"
+#   include "context_win32_gl.h"
 #endif
 
 #ifdef VULKAN_SUPPORTED
-#include "context_win32_vk.h"
+#   include "context_win32_vk.h"
 #endif
 
 using namespace Simple::Display;
@@ -33,6 +33,16 @@ ImplPtr CreateVulkan(const Context::Config& a_config);
 //--------------------------------------------------------------
 ImplPtr Context::Implementation::Create(const Config& a_config)
 {
+#ifndef CUDA_SUPPORTED
+    if (a_config.bufferConfig.interop == Buffer::Interop::CUDA)
+    {
+        printf("Cannot create buffer data with CUDA interop.\n"
+               "Please ensure the SimpleDisplay library was \n"
+               "built with a valid CUDAToolkit installation.\n\n");
+        return nullptr;
+    }
+#endif
+
     switch (a_config.graphicsAPI)
     {
         case GraphicsAPI::NATIVE: return CreateNative(a_config);

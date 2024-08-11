@@ -11,6 +11,12 @@
 using namespace Simple::Display;
 
 //--------------------------------------------------------------
+Buffer::Config Buffer::Config::Invalid()
+{
+    return { 0, 0, Format::NONE, Interop::NONE };
+}
+
+//--------------------------------------------------------------
 Buffer::Buffer(std::unique_ptr<Implementation> a_pimpl)
     : m_pimpl(std::move(a_pimpl))
 {
@@ -48,6 +54,90 @@ void Buffer::Render(uint32_t a_displayWidth,
     {
         m_pimpl->Render(a_displayWidth, a_displayHeight);
     }
+}
+
+//--------------------------------------------------------------
+//! Get the buffer data as a host accessible array of floats.
+//!
+//! \return Buffer data as a host accessible array of floats,
+//!         or nullptr if it cannot be accessed/cast as such.
+//--------------------------------------------------------------
+template<>
+float* Buffer::GetData<float, Buffer::Interop::HOST>() const
+{
+    return (GetInterop() == Interop::HOST &&
+            GetFormat() == Format::RGBA_FLOAT) ?
+            static_cast<float*>(GetData()) : nullptr;
+}
+
+//--------------------------------------------------------------
+//! Get the buffer data as a CUDA accessible array of floats.
+//!
+//! \return Buffer data as a CUDA accessible array of floats,
+//!         or nullptr if it cannot be accessed/cast as such.
+//--------------------------------------------------------------
+template<>
+float* Buffer::GetData<float, Buffer::Interop::CUDA>() const
+{
+    return (GetInterop() == Interop::CUDA &&
+            GetFormat() == Format::RGBA_FLOAT) ?
+            static_cast<float*>(GetData()) : nullptr;
+}
+
+//--------------------------------------------------------------
+//! Get the buffer data as a host accessible array of uint8s.
+//!
+//! \return Buffer data as a host accessible array of uint8s,
+//!         or nullptr if it cannot be accessed/cast as such.
+//--------------------------------------------------------------
+template<>
+uint8_t* Buffer::GetData<uint8_t, Buffer::Interop::HOST>() const
+{
+    return (GetInterop() == Interop::HOST &&
+            GetFormat() == Format::RGBA_UINT8) ?
+            static_cast<uint8_t*>(GetData()) : nullptr;
+}
+
+//--------------------------------------------------------------
+//! Get the buffer data as a CUDA accessible array of uint8s.
+//!
+//! \return Buffer data as a CUDA accessible array of uint8s,
+//!         or nullptr if it cannot be accessed/cast as such.
+//--------------------------------------------------------------
+template<>
+uint8_t* Buffer::GetData<uint8_t, Buffer::Interop::CUDA>() const
+{
+    return (GetInterop() == Interop::CUDA &&
+            GetFormat() == Format::RGBA_UINT8) ?
+            static_cast<uint8_t*>(GetData()) : nullptr;
+}
+
+//--------------------------------------------------------------
+//! Get the buffer data as a host accessible array of uint16s.
+//!
+//! \return Buffer data as a host accessible array of uint16s,
+//!         or nullptr if it cannot be accessed/cast as such.
+//--------------------------------------------------------------
+template<>
+uint16_t* Buffer::GetData<uint16_t, Buffer::Interop::HOST>() const
+{
+    return (GetInterop() == Interop::HOST &&
+            GetFormat() == Format::RGBA_UINT16) ?
+            static_cast<uint16_t*>(GetData()) : nullptr;
+}
+
+//--------------------------------------------------------------
+//! Get the buffer data as a CUDA accessible array of uint16s.
+//!
+//! \return Buffer data as a CUDA accessible array of uint16s,
+//!         or nullptr if it cannot be accessed/cast as such.
+//--------------------------------------------------------------
+template<>
+uint16_t* Buffer::GetData<uint16_t, Buffer::Interop::CUDA>() const
+{
+    return (GetInterop() == Interop::CUDA &&
+            GetFormat() == Format::RGBA_UINT16) ?
+            static_cast<uint16_t*>(GetData()) : nullptr;
 }
 
 //--------------------------------------------------------------
@@ -114,4 +204,14 @@ uint32_t Buffer::GetHeight() const
 Buffer::Format Buffer::GetFormat() const
 {
     return m_pimpl ? m_pimpl->GetFormat() : Format::NONE;
+}
+
+//--------------------------------------------------------------
+//! Get the type of interop used to map the display buffer data.
+//!
+//! \return Type of interop used to map the display buffer data.
+//--------------------------------------------------------------
+Buffer::Interop Buffer::GetInterop() const
+{
+    return m_pimpl ? m_pimpl->GetInterop() : Interop::NONE;
 }

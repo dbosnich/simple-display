@@ -8,7 +8,11 @@
 
 #pragma once
 
-#include <display/graphics/opengl/buffer_gl_common.h>
+#include <display/graphics/opengl/buffer_gl.h>
+#include <display/graphics/opengl/interop_gl_host.h>
+#ifdef CUDA_SUPPORTED
+#   include <display/graphics/opengl/interop_gl_cuda.h>
+#endif // CUDA_SUPPORTED
 
 #include <assert.h>
 #include <string>
@@ -22,7 +26,7 @@ namespace OpenGL
 {
 
 //--------------------------------------------------------------
-class BufferGLCore : public BufferGLCommon
+class BufferGLCore : public BufferGL
 {
 public:
     BufferGLCore(const Buffer::Config& a_config);
@@ -47,6 +51,7 @@ private:
     GLuint m_vertexBufferId = 0;
     GLenum m_glPixelDataType = 0;
     GLenum m_glPixelDataFormat = 0;
+    InteropGL* m_pixelBufferInterop = 0;
 };
 
 //--------------------------------------------------------------
@@ -72,7 +77,7 @@ inline BufferGLCore::BufferGLCore(const Buffer::Config& a_config)
     glGenVertexArrays(1, &m_vertexArrayId);
     InitializeVertices(m_vertexBufferId, m_vertexArrayId);
 
-    // Create pixel buffers that will be rendered to the display.
+    // Create pixel buffer that will be rendered to the display.
     Create(a_config);
 }
 
@@ -99,6 +104,7 @@ inline BufferGLCore::~BufferGLCore()
 inline void BufferGLCore::Create(const Buffer::Config& a_config)
 {
     assert(!m_data);
+    assert(!m_pixelBufferInterop);
 
     // Store the config.
     m_config = a_config;
@@ -126,18 +132,31 @@ inline void BufferGLCore::Create(const Buffer::Config& a_config)
                  nullptr,
                  GL_STREAM_DRAW);
 
-    // Map the pixel buffer to client memory.
-    m_data = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    // Create the appropriate interop to map the pixel buffer.
+    if (m_config.interop == Buffer::Interop::HOST)
+    {
+        m_pixelBufferInterop = new InteropGLHost(m_pixelBufferId,
+                                                 &m_data);
+    }
+    else if (m_config.interop == Buffer::Interop::CUDA)
+    {
+    #ifdef CUDA_SUPPORTED
+        m_pixelBufferInterop = new InteropGLCuda(m_pixelBufferId,
+                                                 &m_data);
+    #endif // CUDA_SUPPORTED
+    }
+    assert(m_pixelBufferInterop);
+    assert(m_data);
 }
 
 //--------------------------------------------------------------
 inline void BufferGLCore::Delete()
 {
-    assert(m_data);
+    assert(m_pixelBufferInterop);
+    delete m_pixelBufferInterop;
+    m_pixelBufferInterop = nullptr;
 
-    // Unmap the pixel buffer from client memory.
-    glBindBuffer(GL_ARRAY_BUFFER, m_pixelBufferId);
-    glUnmapBuffer(GL_ARRAY_BUFFER);
+    assert(m_data);
     m_data = nullptr;
 
     // Delete the pixel buffer.
@@ -163,9 +182,7 @@ inline void BufferGLCore::Resize(const Buffer::Config& a_config)
 inline void BufferGLCore::Render(uint32_t a_displayWidth,
                                  uint32_t a_displayHeight)
 {
-    // Unmap the pixel buffer from client memory.
-    glBindBuffer(GL_ARRAY_BUFFER, m_pixelBufferId);
-    glUnmapBuffer(GL_ARRAY_BUFFER);
+    m_pixelBufferInterop->Unmap();
     m_data = nullptr;
 
     // Copy the pixel buffer to the texture.
@@ -190,8 +207,8 @@ inline void BufferGLCore::Render(uint32_t a_displayWidth,
     glBindVertexArray(m_vertexArrayId);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
-    // Map the pixel buffer back to client memory.
-    m_data = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    m_pixelBufferInterop->Map(&m_data);
+    assert(m_data);
 }
 
 //--------------------------------------------------------------

@@ -11,22 +11,9 @@
 #include "context_macos_vk.h"
 
 #include <display/graphics/vulkan/buffer_vk.h>
+#include <display/graphics/vulkan/debug_vk.h>
 
 #import <MetalKit/MTKView.h>
-
-//--------------------------------------------------------------
-//! Controls whether any Vulkan debug messages should be output.
-//--------------------------------------------------------------
-#define VULKAN_DEBUG_NOTHING 0
-#define VULKAN_DEBUG_DEFAULT 1
-#define VULKAN_DEBUG_VERBOSE 2
-#ifndef VULKAN_DEBUG_SETTING
-#   ifdef NDEBUG
-#       define VULKAN_DEBUG_SETTING VULKAN_DEBUG_NOTHING
-#   else
-#       define VULKAN_DEBUG_SETTING VULKAN_DEBUG_DEFAULT
-#   endif
-#endif//VULKAN_DEBUG_SETTING
 
 using namespace Simple::Display;
 using namespace Simple::Display::Vulkan;
@@ -237,9 +224,9 @@ void CreatePipelineContext(PipelineContext*& a_pipelineContext,
 #endif
 
     // Create the instance.
-    AssertSucceeded(vkCreateInstance(&createInfo,
-                                     nullptr,
-                                     &a_pipelineContext->instance));
+    VULKAN_ENSURE(vkCreateInstance(&createInfo,
+                                   nullptr,
+                                   &a_pipelineContext->instance));
     assert(a_pipelineContext->instance);
 
     // Create the debug messenger.
@@ -262,10 +249,10 @@ void CreatePipelineContext(PipelineContext*& a_pipelineContext,
     surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
 
     // Create the surface.
-    AssertSucceeded(vkCreateMetalSurfaceEXT(a_pipelineContext->instance,
-                                            &surfaceCreateInfo,
-                                            nullptr,
-                                            &a_pipelineContext->surface));
+    VULKAN_ENSURE(vkCreateMetalSurfaceEXT(a_pipelineContext->instance,
+                                          &surfaceCreateInfo,
+                                          nullptr,
+                                          &a_pipelineContext->surface));
 }
 
 //--------------------------------------------------------------

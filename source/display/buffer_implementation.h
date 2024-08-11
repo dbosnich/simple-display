@@ -40,6 +40,7 @@ protected:
     virtual uint32_t GetWidth() const = 0;
     virtual uint32_t GetHeight() const = 0;
     virtual Format   GetFormat() const = 0;
+    virtual Interop  GetInterop() const = 0;
 };
 
 } // namespace Display

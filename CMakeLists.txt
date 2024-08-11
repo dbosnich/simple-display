@@ -14,6 +14,11 @@ project(simple_display
         LANGUAGES CXX
         VERSION 1.0)
 
+# Specify supported CUDA architectures.
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES all-major)
+endif()
+
 # Gather header files.
 file(GLOB_RECURSE header_files include/*.h)
 

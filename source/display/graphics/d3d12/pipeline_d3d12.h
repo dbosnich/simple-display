@@ -16,6 +16,12 @@
 #include <dxgi1_6.h>
 #include <assert.h>
 
+#include <display/graphics/d3d12/debug_d3d12.h>
+#include <display/graphics/d3d12/interop_d3d12_host.h>
+#ifdef CUDA_SUPPORTED
+#   include <display/graphics/d3d12/interop_d3d12_cuda.h>
+#endif // CUDA_SUPPORTED
+
 //--------------------------------------------------------------
 namespace Simple
 {
@@ -61,13 +67,16 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_shaderResourceHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_renderTaregtHeap;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_renderTargetViews[N];
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_textureUploadHeap;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_textureBuffer;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_sharedBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_vertexBuffer;
+    std::unique_ptr<InteropD3D12> m_interopD3D12 = nullptr;
     CD3DX12_TEXTURE_COPY_LOCATION m_textureBufferCopyDest;
-    CD3DX12_TEXTURE_COPY_LOCATION m_textureBufferCopySrc;
-    CD3DX12_RESOURCE_BARRIER m_textureTransitionResource;
-    CD3DX12_RESOURCE_BARRIER m_textureTransitionCopy;
+    CD3DX12_TEXTURE_COPY_LOCATION m_sharedBufferCopySrc;
+    CD3DX12_RESOURCE_BARRIER m_textureBufferToResource;
+    CD3DX12_RESOURCE_BARRIER m_textureBufferToCopyDest;
+    CD3DX12_RESOURCE_BARRIER m_sharedBufferToCopySrc;
+    CD3DX12_RESOURCE_BARRIER m_sharedBufferToDefault;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView = {};
     CD3DX12_VIEWPORT m_viewport = {};
     CD3DX12_RECT m_scissorRect = {};
@@ -76,13 +85,6 @@ private:
     UINT64 m_fenceValue = 0;
     UINT m_frameIndex = 0;
 };
-
-//--------------------------------------------------------------
-inline void AssertSucceeded(HRESULT a_result)
-{
-    (void)a_result;
-    assert(SUCCEEDED(a_result));
-}
 
 //--------------------------------------------------------------
 inline bool DoesAdapterSupportsD3D12(IDXGIAdapter1* adapter)
@@ -120,8 +122,8 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
 
     // Create the factory.
     Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
-    AssertSucceeded(CreateDXGIFactory2(factoryFlags,
-                                       IID_PPV_ARGS(&factory)));
+    D3D12_ENSURE(CreateDXGIFactory2(factoryFlags,
+                                    IID_PPV_ARGS(&factory)));
 
     // Find the best GPU adapter.
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
@@ -159,16 +161,16 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
 
     // Create the device.
     assert(adapter);
-    AssertSucceeded(D3D12CreateDevice(adapter.Get(),
-                                      D3D_FEATURE_LEVEL_11_0,
-                                      IID_PPV_ARGS(&m_device)));
+    D3D12_ENSURE(D3D12CreateDevice(adapter.Get(),
+                                   D3D_FEATURE_LEVEL_11_0,
+                                   IID_PPV_ARGS(&m_device)));
 
     // Create the command queue.
     {
         D3D12_COMMAND_QUEUE_DESC queueDesc = {};
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        AssertSucceeded(m_device->CreateCommandQueue(&queueDesc,
-                                                     IID_PPV_ARGS(&m_commandQueue)));
+        D3D12_ENSURE(m_device->CreateCommandQueue(&queueDesc,
+                                                  IID_PPV_ARGS(&m_commandQueue)));
     }
 
     // Create the swap chain.
@@ -186,13 +188,13 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
         fullScreenDesc.Windowed = !a_fullScreenState;
 
         Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
-        AssertSucceeded(factory->CreateSwapChainForHwnd(m_commandQueue.Get(),
-                                                        a_windowHandle,
-                                                        &swapChainDesc,
-                                                        &fullScreenDesc,
-                                                        nullptr,
-                                                        &swapChain));
-        AssertSucceeded(swapChain.As(&m_swapChain));
+        D3D12_ENSURE(factory->CreateSwapChainForHwnd(m_commandQueue.Get(),
+                                                     a_windowHandle,
+                                                     &swapChainDesc,
+                                                     &fullScreenDesc,
+                                                     nullptr,
+                                                     &swapChain));
+        D3D12_ENSURE(swapChain.As(&m_swapChain));
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
         // Initialize the viewport and scissor rect.
@@ -214,8 +216,8 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
         renderTaregtHeapDesc.NumDescriptors = N;
         renderTaregtHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         renderTaregtHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        AssertSucceeded(m_device->CreateDescriptorHeap(&renderTaregtHeapDesc,
-                                                       IID_PPV_ARGS(&m_renderTaregtHeap)));
+        D3D12_ENSURE(m_device->CreateDescriptorHeap(&renderTaregtHeapDesc,
+                                                    IID_PPV_ARGS(&m_renderTaregtHeap)));
     }
 
     // Create the render target views.
@@ -224,7 +226,7 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtHandle(m_renderTaregtHeap->GetCPUDescriptorHandleForHeapStart());
         for (uint32_t n = 0; n < N; ++n)
         {
-            AssertSucceeded(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargetViews[n])));
+            D3D12_ENSURE(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargetViews[n])));
             m_device->CreateRenderTargetView(m_renderTargetViews[n].Get(), nullptr, rtHandle);
             rtHandle.Offset(1, m_rtDescriptorSize);
         }
@@ -263,14 +265,14 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
 
         Microsoft::WRL::ComPtr<ID3DBlob> error;
         Microsoft::WRL::ComPtr<ID3DBlob> signature;
-        AssertSucceeded(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc,
-                                                              D3D_ROOT_SIGNATURE_VERSION_1_0,
-                                                              &signature,
-                                                              &error));
-        AssertSucceeded(m_device->CreateRootSignature(0,
-                                                      signature->GetBufferPointer(),
-                                                      signature->GetBufferSize(),
-                                                      IID_PPV_ARGS(&m_graphicsRootSignature)));
+        D3D12_ENSURE(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc,
+                                                           D3D_ROOT_SIGNATURE_VERSION_1_0,
+                                                           &signature,
+                                                           &error));
+        D3D12_ENSURE(m_device->CreateRootSignature(0,
+                                                   signature->GetBufferPointer(),
+                                                   signature->GetBufferSize(),
+                                                   IID_PPV_ARGS(&m_graphicsRootSignature)));
     }
 
     // Create the graphics pipeline state.
@@ -308,31 +310,31 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
 
         // Compile the vertex shader.
         Microsoft::WRL::ComPtr<ID3DBlob> vertexShader;
-        AssertSucceeded(D3DCompile(shaderSource.c_str(),
-                                   shaderSource.size(),
-                                   nullptr,
-                                   nullptr,
-                                   nullptr,
-                                   "VSMain",
-                                   "vs_5_0",
-                                   compileFlags,
-                                   0,
-                                   &vertexShader,
-                                   nullptr));
+        D3D12_ENSURE(D3DCompile(shaderSource.c_str(),
+                                shaderSource.size(),
+                                nullptr,
+                                nullptr,
+                                nullptr,
+                                "VSMain",
+                                "vs_5_0",
+                                compileFlags,
+                                0,
+                                &vertexShader,
+                                nullptr));
 
         // Compile the pixel shader.
         Microsoft::WRL::ComPtr<ID3DBlob> pixelShader;
-        AssertSucceeded(D3DCompile(shaderSource.c_str(),
-                                   shaderSource.size(),
-                                   nullptr,
-                                   nullptr,
-                                   nullptr,
-                                   "PSMain",
-                                   "ps_5_0",
-                                   compileFlags,
-                                   0,
-                                   &pixelShader,
-                                   nullptr));
+        D3D12_ENSURE(D3DCompile(shaderSource.c_str(),
+                                shaderSource.size(),
+                                nullptr,
+                                nullptr,
+                                nullptr,
+                                "PSMain",
+                                "ps_5_0",
+                                compileFlags,
+                                0,
+                                &pixelShader,
+                                nullptr));
 
         // Define the vertex input layout.
         D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
@@ -356,7 +358,8 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
         psoDesc.NumRenderTargets = 1;
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.SampleDesc.Count = 1;
-        AssertSucceeded(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_graphicsPipelineState)));
+        D3D12_ENSURE(m_device->CreateGraphicsPipelineState(&psoDesc,
+                                                           IID_PPV_ARGS(&m_graphicsPipelineState)));
     }
 
     // Create the vertex buffer.
@@ -377,17 +380,19 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
         const UINT quadVerticesSize = sizeof(quadVertices);
         const CD3DX12_HEAP_PROPERTIES heapProperties(D3D12_HEAP_TYPE_UPLOAD);
         const CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(quadVerticesSize);
-        AssertSucceeded(m_device->CreateCommittedResource(&heapProperties,
-                                                          D3D12_HEAP_FLAG_NONE,
-                                                          &resourceDesc,
-                                                          D3D12_RESOURCE_STATE_GENERIC_READ,
-                                                          nullptr,
-                                                          IID_PPV_ARGS(&m_vertexBuffer)));
+        D3D12_ENSURE(m_device->CreateCommittedResource(&heapProperties,
+                                                       D3D12_HEAP_FLAG_NONE,
+                                                       &resourceDesc,
+                                                       D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                       nullptr,
+                                                       IID_PPV_ARGS(&m_vertexBuffer)));
 
         // Copy the triangle data to the vertex buffer.
         UINT8* pVertexDataBegin;
         CD3DX12_RANGE readRange(0, 0);
-        AssertSucceeded(m_vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
+        D3D12_ENSURE(m_vertexBuffer->Map(0,
+                                         &readRange,
+                                         reinterpret_cast<void**>(&pVertexDataBegin)));
         memcpy(pVertexDataBegin, quadVertices, sizeof(quadVertices));
         m_vertexBuffer->Unmap(0, nullptr);
 
@@ -397,77 +402,90 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
         m_vertexBufferView.SizeInBytes = quadVerticesSize;
     }
 
+    // Determine the correct buffer and shader formats.
+    DXGI_FORMAT bufferFormat = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT shaderFormat = DXGI_FORMAT_UNKNOWN;
+    switch (a_bufferConfig.format)
+    {
+        case Buffer::Format::RGBA_FLOAT:
+        {
+            bufferFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
+            shaderFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        }
+        break;
+        case Buffer::Format::RGBA_UINT8:
+        {
+            bufferFormat = DXGI_FORMAT_R8G8B8A8_UINT;
+            shaderFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+        }
+        break;
+        case Buffer::Format::RGBA_UINT16:
+        {
+            bufferFormat = DXGI_FORMAT_R16G16B16A16_UINT;
+            shaderFormat = DXGI_FORMAT_R16G16B16A16_UNORM;
+        }
+        break;
+    }
+    assert(bufferFormat != DXGI_FORMAT_UNKNOWN);
+    assert(shaderFormat != DXGI_FORMAT_UNKNOWN);
+
     // Create the texture.
     {
-        DXGI_FORMAT bufferFormat = DXGI_FORMAT_UNKNOWN;
-        DXGI_FORMAT shaderFormat = DXGI_FORMAT_UNKNOWN;
-        switch (a_bufferConfig.format)
-        {
-            case Buffer::Format::RGBA_FLOAT:
-            {
-                bufferFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
-                shaderFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
-            }
-            break;
-            case Buffer::Format::RGBA_UINT8:
-            {
-                bufferFormat = DXGI_FORMAT_R8G8B8A8_UINT;
-                shaderFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-            }
-            break;
-            case Buffer::Format::RGBA_UINT16:
-            {
-                bufferFormat = DXGI_FORMAT_R16G16B16A16_UINT;
-                shaderFormat = DXGI_FORMAT_R16G16B16A16_UNORM;
-            }
-            break;
-        }
-        assert(bufferFormat != DXGI_FORMAT_UNKNOWN);
-        assert(shaderFormat != DXGI_FORMAT_UNKNOWN);
-
         // Describe and create the Texture2D.
         D3D12_RESOURCE_DESC textureDesc = {};
-        textureDesc.MipLevels = 1;
         textureDesc.Format = bufferFormat;
         textureDesc.Width = a_bufferConfig.width;
         textureDesc.Height = a_bufferConfig.height;
         textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        textureDesc.MipLevels = 1;
         textureDesc.DepthOrArraySize = 1;
         textureDesc.SampleDesc.Count = 1;
         textureDesc.SampleDesc.Quality = 0;
         textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         const CD3DX12_HEAP_PROPERTIES heapPropertiesDefault(D3D12_HEAP_TYPE_DEFAULT);
-        AssertSucceeded(m_device->CreateCommittedResource(&heapPropertiesDefault,
-                                                          D3D12_HEAP_FLAG_NONE,
-                                                          &textureDesc,
-                                                          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                                                          nullptr,
-                                                          IID_PPV_ARGS(&m_textureBuffer)));
+        D3D12_ENSURE(m_device->CreateCommittedResource(&heapPropertiesDefault,
+                                                       D3D12_HEAP_FLAG_NONE,
+                                                       &textureDesc,
+                                                       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                                       nullptr,
+                                                       IID_PPV_ARGS(&m_textureBuffer)));
 
-        // Create the resource transitions.
-        m_textureTransitionCopy = CD3DX12_RESOURCE_BARRIER::Transition(m_textureBuffer.Get(),
-                                                                       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                                                                       D3D12_RESOURCE_STATE_COPY_DEST);
-        m_textureTransitionResource = CD3DX12_RESOURCE_BARRIER::Transition(m_textureBuffer.Get(),
-                                                                           D3D12_RESOURCE_STATE_COPY_DEST,
-                                                                           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        // Create the texture buffer copy destination and resource transitions.
+        m_textureBufferCopyDest = CD3DX12_TEXTURE_COPY_LOCATION(m_textureBuffer.Get());
+        m_textureBufferToResource = CD3DX12_RESOURCE_BARRIER::Transition(m_textureBuffer.Get(),
+                                                                         D3D12_RESOURCE_STATE_COPY_DEST,
+                                                                         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_textureBufferToCopyDest = CD3DX12_RESOURCE_BARRIER::Transition(m_textureBuffer.Get(),
+                                                                         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                                                         D3D12_RESOURCE_STATE_COPY_DEST);
+    }
 
-        // Create the texture upload buffer.
+    // Create the shared buffer.
+    {
+        // Create the appropriate interop to map the shared buffer.
         const UINT64 bufferSize = Buffer::MinSizeBytes(a_bufferConfig);
-        const CD3DX12_HEAP_PROPERTIES heapPropertiesUpload(D3D12_HEAP_TYPE_UPLOAD);
-        const CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize);
-        AssertSucceeded(m_device->CreateCommittedResource(&heapPropertiesUpload,
-                                                          D3D12_HEAP_FLAG_NONE,
-                                                          &resourceDesc,
-                                                          D3D12_RESOURCE_STATE_GENERIC_READ,
-                                                          nullptr,
-                                                          IID_PPV_ARGS(&m_textureUploadHeap)));
+        D3D12_RESOURCE_STATES sharedBufferDefaultResourceState = D3D12_RESOURCE_STATE_COMMON;
+        if (a_bufferConfig.interop == Buffer::Interop::HOST)
+        {
+            m_interopD3D12 = std::make_unique<InteropD3D12Host>(m_sharedBuffer,
+                                                                m_device,
+                                                                sharedBufferDefaultResourceState,
+                                                                a_bufferData,
+                                                                bufferSize);
+        }
+        else if (a_bufferConfig.interop == Buffer::Interop::CUDA)
+        {
+        #ifdef CUDA_SUPPORTED
+            m_interopD3D12 = std::make_unique<InteropD3D12Cuda>(m_sharedBuffer,
+                                                                m_device,
+                                                                sharedBufferDefaultResourceState,
+                                                                a_bufferData,
+                                                                bufferSize);
+        #endif // CUDA_SUPPORTED
+        }
+        assert(m_sharedBuffer);
 
-        // Map the texture upload buffer.
-        CD3DX12_RANGE readRange(0, 0);
-        AssertSucceeded(m_textureUploadHeap->Map(0, &readRange, a_bufferData));
-
-        // Create the texture copy source and destination locations.
+        // Create the shared buffer copy source and resource transitions.
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT subresourceFootprint;
         subresourceFootprint.Offset = 0;
         subresourceFootprint.Footprint.Format = bufferFormat;
@@ -475,17 +493,25 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
         subresourceFootprint.Footprint.Height = a_bufferConfig.height;
         subresourceFootprint.Footprint.Depth = 1;
         subresourceFootprint.Footprint.RowPitch = Buffer::MinPitchBytes(a_bufferConfig);
-        m_textureBufferCopySrc = CD3DX12_TEXTURE_COPY_LOCATION(m_textureUploadHeap.Get(),
-                                                               subresourceFootprint);
-        m_textureBufferCopyDest = CD3DX12_TEXTURE_COPY_LOCATION(m_textureBuffer.Get());
+        m_sharedBufferCopySrc = CD3DX12_TEXTURE_COPY_LOCATION(m_sharedBuffer.Get(),
+                                                              subresourceFootprint);
+        m_sharedBufferToCopySrc = CD3DX12_RESOURCE_BARRIER::Transition(m_sharedBuffer.Get(),
+                                                                       sharedBufferDefaultResourceState,
+                                                                       D3D12_RESOURCE_STATE_COPY_SOURCE);
+        m_sharedBufferToDefault = CD3DX12_RESOURCE_BARRIER::Transition(m_sharedBuffer.Get(),
+                                                                       D3D12_RESOURCE_STATE_COPY_SOURCE,
+                                                                       sharedBufferDefaultResourceState);
+    }
 
-        // Describe and create a shader resource heap for the texture.
+    // Create the shader resource view.
+    {
+        // Describe and create a shader resource heap.
         D3D12_DESCRIPTOR_HEAP_DESC shaderResourceHeapDesc = {};
         shaderResourceHeapDesc.NumDescriptors = 1;
         shaderResourceHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         shaderResourceHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        AssertSucceeded(m_device->CreateDescriptorHeap(&shaderResourceHeapDesc,
-                                                       IID_PPV_ARGS(&m_shaderResourceHeap)));
+        D3D12_ENSURE(m_device->CreateDescriptorHeap(&shaderResourceHeapDesc,
+                                                    IID_PPV_ARGS(&m_shaderResourceHeap)));
 
         // Describe and create a shader resource view for the texture.
         D3D12_SHADER_RESOURCE_VIEW_DESC shaderResourceDesc = {};
@@ -500,27 +526,27 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
 
     // Create the command allocator and command list.
     {
-        AssertSucceeded(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                         IID_PPV_ARGS(&m_commandAlloc)));
-        AssertSucceeded(m_device->CreateCommandList(0,
-                                                    D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                    m_commandAlloc.Get(),
-                                                    m_graphicsPipelineState.Get(),
-                                                    IID_PPV_ARGS(&m_commandList)));
-        AssertSucceeded(m_commandList->Close());
+        D3D12_ENSURE(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                      IID_PPV_ARGS(&m_commandAlloc)));
+        D3D12_ENSURE(m_device->CreateCommandList(0,
+                                                 D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                 m_commandAlloc.Get(),
+                                                 m_graphicsPipelineState.Get(),
+                                                 IID_PPV_ARGS(&m_commandList)));
+        D3D12_ENSURE(m_commandList->Close());
     }
 
     // Create synchronization objects.
     {
-        AssertSucceeded(m_device->CreateFence(m_fenceValue,
-                                              D3D12_FENCE_FLAG_NONE,
-                                              IID_PPV_ARGS(&m_fence)));
+        D3D12_ENSURE(m_device->CreateFence(m_fenceValue,
+                                           D3D12_FENCE_FLAG_NONE,
+                                           IID_PPV_ARGS(&m_fence)));
         m_fenceValue++;
 
         m_fenceEvent = ::CreateEvent(nullptr, FALSE, FALSE, nullptr);
         if (m_fenceEvent == nullptr)
         {
-            AssertSucceeded(HRESULT_FROM_WIN32(GetLastError()));
+            D3D12_ENSURE(HRESULT_FROM_WIN32(GetLastError()));
         }
 
         WaitForFrameCompletion();
@@ -530,7 +556,7 @@ inline PipelineD3D12::PipelineD3D12(HWND a_windowHandle,
 //--------------------------------------------------------------
 inline PipelineD3D12::~PipelineD3D12()
 {
-    AssertSucceeded(m_swapChain->SetFullscreenState(false, nullptr));
+    D3D12_ENSURE(m_swapChain->SetFullscreenState(false, nullptr));
     WaitForFrameCompletion();
 }
 
@@ -541,9 +567,9 @@ inline void PipelineD3D12::Render(uint32_t a_displayWidth,
     // Record all the commands needed to render the buffer.
     {
         // Reset the command allocator and command list.
-        AssertSucceeded(m_commandAlloc->Reset());
-        AssertSucceeded(m_commandList->Reset(m_commandAlloc.Get(),
-                                             m_graphicsPipelineState.Get()));
+        D3D12_ENSURE(m_commandAlloc->Reset());
+        D3D12_ENSURE(m_commandList->Reset(m_commandAlloc.Get(),
+                                          m_graphicsPipelineState.Get()));
 
         // Set the necessary graphics state.
         m_commandList->SetGraphicsRootSignature(m_graphicsRootSignature.Get());
@@ -558,9 +584,11 @@ inline void PipelineD3D12::Render(uint32_t a_displayWidth,
         m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
         // Copy the pixel buffer to the texture.
-        m_commandList->ResourceBarrier(1, &m_textureTransitionCopy);
-        m_commandList->CopyTextureRegion(&m_textureBufferCopyDest, 0, 0, 0, &m_textureBufferCopySrc, nullptr);
-        m_commandList->ResourceBarrier(1, &m_textureTransitionResource);
+        m_commandList->ResourceBarrier(1, &m_sharedBufferToCopySrc);
+        m_commandList->ResourceBarrier(1, &m_textureBufferToCopyDest);
+        m_commandList->CopyTextureRegion(&m_textureBufferCopyDest, 0, 0, 0, &m_sharedBufferCopySrc, nullptr);
+        m_commandList->ResourceBarrier(1, &m_textureBufferToResource);
+        m_commandList->ResourceBarrier(1, &m_sharedBufferToDefault);
 
         // Render to the back buffer.
         const CD3DX12_RESOURCE_BARRIER transitionToRenderTarget = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargetViews[m_frameIndex].Get(),
@@ -580,7 +608,7 @@ inline void PipelineD3D12::Render(uint32_t a_displayWidth,
         m_commandList->ResourceBarrier(1, &transitionToPresent);
 
         // Close the command list.
-        AssertSucceeded(m_commandList->Close());
+        D3D12_ENSURE(m_commandList->Close());
     }
 
     // Execute the command list.
@@ -588,7 +616,7 @@ inline void PipelineD3D12::Render(uint32_t a_displayWidth,
     m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     // Present the frame.
-    AssertSucceeded(m_swapChain->Present(1, 0));
+    D3D12_ENSURE(m_swapChain->Present(1, 0));
 
     // Wait for the frame to complete.
     WaitForFrameCompletion();
@@ -599,13 +627,13 @@ inline void PipelineD3D12::WaitForFrameCompletion()
 {
     // Signal and increment the fence value.
     const UINT64 fence = m_fenceValue;
-    AssertSucceeded(m_commandQueue->Signal(m_fence.Get(), fence));
+    D3D12_ENSURE(m_commandQueue->Signal(m_fence.Get(), fence));
     m_fenceValue++;
 
     // Wait until the previous frame is completed.
     if (m_fence->GetCompletedValue() < fence)
     {
-        AssertSucceeded(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
+        D3D12_ENSURE(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
         ::WaitForSingleObject(m_fenceEvent, INFINITE);
     }
 

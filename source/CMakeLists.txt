@@ -58,8 +58,11 @@ target_compile_features(${LIB_TARGET} PUBLIC cxx_std_14)
 target_include_directories(${LIB_TARGET} PUBLIC ${INCLUDE_DIR})
 target_include_directories(${LIB_TARGET} PRIVATE ${SOURCE_DIR})
 target_compile_options(${LIB_TARGET} PRIVATE
-  $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /GR->
-  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Werror -fno-rtti>)
+  $<$<COMPILE_LANGUAGE:CXX>:
+    $<$<CXX_COMPILER_ID:MSVC>: /GR- /W4 /WX>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-rtti -Wall -Werror -Wextra>
+  >
+)
 
 # Ensure other platform specific files are displayed but not built.
 target_sources(${LIB_TARGET} PRIVATE ${source_files_platform_other})
@@ -76,8 +79,16 @@ endif()
 # Add Vulkan dependencies.
 find_package(Vulkan OPTIONAL_COMPONENTS shaderc_combined MoltenVK)
 if (${Vulkan_FOUND})
-    target_compile_definitions(${LIB_TARGET} PRIVATE VULKAN_SUPPORTED)
     target_link_libraries(${LIB_TARGET} Vulkan::Vulkan Vulkan::shaderc_combined)
+    target_compile_definitions(${LIB_TARGET} PRIVATE VULKAN_SUPPORTED)
+endif()
+
+# Add CUDA dependencies.
+find_package(CUDAToolkit)
+if (${CUDAToolkit_FOUND})
+    enable_language(CUDA)
+    target_link_libraries(${LIB_TARGET} CUDA::cudart)
+    target_compile_definitions(${LIB_TARGET} PRIVATE CUDA_SUPPORTED)
 endif()
 
 # Add platform specific dependencies.

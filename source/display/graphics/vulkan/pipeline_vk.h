@@ -25,6 +25,10 @@ namespace Display
 namespace Vulkan
 {
 
+class InteropVK;
+class InteropVKCuda;
+class InteropVKHost;
+
 //--------------------------------------------------------------
 struct PipelineContext
 {
@@ -34,6 +38,7 @@ struct PipelineContext
     VkSurfaceKHR surface = nullptr;
     VkDebugUtilsMessengerEXT debugMessenger = nullptr;
     std::vector<const char*> requiredDeviceExtensions;
+    VkExternalMemoryHandleTypeFlagBits externalMemoryHandleType = {};
 };
 
 //--------------------------------------------------------------
@@ -69,13 +74,26 @@ protected:
     void CreateTextureImage();
     void CreateTextureImageView();
     void CreateTextureSampler();
-    void CreateTextureBuffer();
+    void CreateSharedBuffer();
     void CreateVertexBuffer();
     void CreateIndexBuffer();
     void CreateDescriptorPool();
     void CreateDescriptorSets();
     void CreateCommandBuffers();
     void CreateSyncObjects();
+
+    // Returns the allocation size that may be different.
+    VkDeviceSize CreateBuffer(VkBuffer& a_buffer,
+                              VkDeviceMemory& a_bufferMemory,
+                              const VkDeviceSize a_bufferSize,
+                              const VkBufferUsageFlags a_bufferUsageFlags,
+                              const VkMemoryPropertyFlags a_memoryPropertyFlags,
+                              const void* a_bufferCreateInfoNext = nullptr,
+                              const void* a_memoryAllocateInfoNext = nullptr);
+
+    void CopyBuffer(const VkBuffer& a_sourceBuffer,
+                    const VkBuffer& a_destinationBuffer,
+                    const VkDeviceSize a_sourceBufferSize);
 
     void RenderFrame();
 
@@ -137,9 +155,15 @@ private:
     VkImageView m_textureImageView;
     VkSampler m_textureSampler;
 
-    // Texture buffer and memory.
-    VkBuffer m_textureBuffer;
-    VkDeviceMemory m_textureBufferMemory;
+    // Shared buffer and memory.
+    VkBuffer m_sharedBuffer;
+    VkDeviceMemory m_sharedBufferMemory;
+
+    // Shared buffer interop helper and handle type.
+    friend class InteropVKCuda;
+    friend class InteropVKHost;
+    std::unique_ptr<InteropVK> m_interopVK = nullptr;
+    VkExternalMemoryHandleTypeFlagBits m_externalMemoryHandleType = {};
 
     // Vertex buffer and memory.
     VkBuffer m_vertexBuffer;
@@ -176,13 +200,23 @@ private:
     };
 };
 
+} // namespace Vulkan
+} // namespace Display
+} // namespace Simple
+
+// Inline interop implementations depend on PipelineVK.
+#include <display/graphics/vulkan/interop_vk_host.h>
+#ifdef CUDA_SUPPORTED
+#   include <display/graphics/vulkan/interop_vk_cuda.h>
+#endif // CUDA_SUPPORTED
+
 //--------------------------------------------------------------
-inline void AssertSucceeded(VkResult a_result)
+namespace Simple
 {
-    (void)a_result;
-    assert(a_result == VK_SUCCESS ||
-           a_result == VK_SUBOPTIMAL_KHR);
-}
+namespace Display
+{
+namespace Vulkan
+{
 
 //--------------------------------------------------------------
 constexpr VkFormat GetVkFormat(const Buffer::Format& a_format)
@@ -209,6 +243,7 @@ inline PipelineVK::PipelineVK(const Buffer::Config& a_bufferConfig,
     , m_surface(a_pipelineContext.surface)
     , m_requiredExtensions(a_pipelineContext.requiredDeviceExtensions)
     , m_swapChainExtent(a_pipelineContext.displayExtent)
+    , m_externalMemoryHandleType(a_pipelineContext.externalMemoryHandleType)
 {
     m_requiredExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
@@ -224,7 +259,7 @@ inline PipelineVK::PipelineVK(const Buffer::Config& a_bufferConfig,
     CreateTextureImage();
     CreateTextureImageView();
     CreateTextureSampler();
-    CreateTextureBuffer();
+    CreateSharedBuffer();
     CreateVertexBuffer();
     CreateIndexBuffer();
     CreateDescriptorPool();
@@ -237,7 +272,7 @@ inline PipelineVK::PipelineVK(const Buffer::Config& a_bufferConfig,
 inline PipelineVK::~PipelineVK()
 {
     // Wait for the device to become idle.
-    AssertSucceeded(vkDeviceWaitIdle(m_device));
+    VULKAN_ENSURE(vkDeviceWaitIdle(m_device));
 
     for (auto framebuffer : m_swapChainFrameBuffers)
     {
@@ -258,9 +293,9 @@ inline PipelineVK::~PipelineVK()
     vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
     vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
 
-    vkUnmapMemory(m_device, m_textureBufferMemory);
-    vkDestroyBuffer(m_device, m_textureBuffer, nullptr);
-    vkFreeMemory(m_device, m_textureBufferMemory, nullptr);
+    m_interopVK.reset();
+    vkDestroyBuffer(m_device, m_sharedBuffer, nullptr);
+    vkFreeMemory(m_device, m_sharedBufferMemory, nullptr);
 
     vkDestroySampler(m_device, m_textureSampler, nullptr);
     vkDestroyImageView(m_device, m_textureImageView, nullptr);
@@ -311,15 +346,15 @@ inline void PipelineVK::SelectPhysicalDevice()
 {
     // Get the count of physical devices.
     uint32_t deviceCount = 0;
-    AssertSucceeded(vkEnumeratePhysicalDevices(m_instance,
-                                               &deviceCount,
-                                               nullptr));
+    VULKAN_ENSURE(vkEnumeratePhysicalDevices(m_instance,
+                                             &deviceCount,
+                                             nullptr));
 
     // Get the list of physical devices.
     std::vector<VkPhysicalDevice> devices(deviceCount);
-    AssertSucceeded(vkEnumeratePhysicalDevices(m_instance,
-                                               &deviceCount,
-                                               devices.data()));
+    VULKAN_ENSURE(vkEnumeratePhysicalDevices(m_instance,
+                                             &deviceCount,
+                                             devices.data()));
 
     // Select the first suitable device.
     for (const auto& device : devices)
@@ -340,17 +375,17 @@ inline bool SupportsExtensions(const VkPhysicalDevice& a_physicalDevice,
 {
     // Get the device extension count.
     uint32_t extensionCount;
-    AssertSucceeded(vkEnumerateDeviceExtensionProperties(a_physicalDevice,
-                                                         nullptr,
-                                                         &extensionCount,
-                                                         nullptr));
+    VULKAN_ENSURE(vkEnumerateDeviceExtensionProperties(a_physicalDevice,
+                                                       nullptr,
+                                                       &extensionCount,
+                                                       nullptr));
 
     // Get the device extensions.
     std::vector<VkExtensionProperties> extensions(extensionCount);
-    AssertSucceeded(vkEnumerateDeviceExtensionProperties(a_physicalDevice,
-                                                         nullptr,
-                                                         &extensionCount,
-                                                         extensions.data()));
+    VULKAN_ENSURE(vkEnumerateDeviceExtensionProperties(a_physicalDevice,
+                                                       nullptr,
+                                                       &extensionCount,
+                                                       extensions.data()));
 
     // Find each required extension.
     for (const char* requiredExtension : a_requiredExtensions)
@@ -402,10 +437,10 @@ inline bool GetQueueFamilyIndices(const VkPhysicalDevice& a_physicalDevice,
         }
 
         VkBool32 presentSupport = false;
-        AssertSucceeded(vkGetPhysicalDeviceSurfaceSupportKHR(a_physicalDevice,
-                                                             i,
-                                                             a_surface,
-                                                             &presentSupport));
+        VULKAN_ENSURE(vkGetPhysicalDeviceSurfaceSupportKHR(a_physicalDevice,
+                                                           i,
+                                                           a_surface,
+                                                           &presentSupport));
         if (presentSupport)
         {
             a_presentQueueFamilyIndex = i;
@@ -444,10 +479,10 @@ inline bool PipelineVK::TrySelectPhysicalDevice(const VkPhysicalDevice& a_physic
 
     // Get the number of supported surface formats.
     uint32_t surfaceFormatCount = 0;
-    AssertSucceeded(vkGetPhysicalDeviceSurfaceFormatsKHR(a_physicalDevice,
-                                                         a_surface,
-                                                         &surfaceFormatCount,
-                                                         nullptr));
+    VULKAN_ENSURE(vkGetPhysicalDeviceSurfaceFormatsKHR(a_physicalDevice,
+                                                       a_surface,
+                                                       &surfaceFormatCount,
+                                                       nullptr));
     if (surfaceFormatCount == 0)
     {
         return false;
@@ -455,10 +490,10 @@ inline bool PipelineVK::TrySelectPhysicalDevice(const VkPhysicalDevice& a_physic
 
     // Get the number of supported present modes.
     uint32_t presentModeCount = 0;
-    AssertSucceeded(vkGetPhysicalDeviceSurfacePresentModesKHR(a_physicalDevice,
-                                                              a_surface,
-                                                              &presentModeCount,
-                                                              nullptr));
+    VULKAN_ENSURE(vkGetPhysicalDeviceSurfacePresentModesKHR(a_physicalDevice,
+                                                            a_surface,
+                                                            &presentModeCount,
+                                                            nullptr));
     if (presentModeCount == 0)
     {
         return false;
@@ -466,17 +501,17 @@ inline bool PipelineVK::TrySelectPhysicalDevice(const VkPhysicalDevice& a_physic
 
     // Get the supported surface formats.
     std::vector<VkSurfaceFormatKHR> surfaceFormats(surfaceFormatCount);
-    AssertSucceeded(vkGetPhysicalDeviceSurfaceFormatsKHR(a_physicalDevice,
-                                                         a_surface,
-                                                         &surfaceFormatCount,
-                                                         surfaceFormats.data()));
+    VULKAN_ENSURE(vkGetPhysicalDeviceSurfaceFormatsKHR(a_physicalDevice,
+                                                       a_surface,
+                                                       &surfaceFormatCount,
+                                                       surfaceFormats.data()));
 
     // Get the supported present modes.
     std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    AssertSucceeded(vkGetPhysicalDeviceSurfacePresentModesKHR(a_physicalDevice,
-                                                              a_surface,
-                                                              &presentModeCount,
-                                                              presentModes.data()));
+    VULKAN_ENSURE(vkGetPhysicalDeviceSurfacePresentModesKHR(a_physicalDevice,
+                                                            a_surface,
+                                                            &presentModeCount,
+                                                            presentModes.data()));
 
     // Select the best available surface format.
     m_surfaceFormat = surfaceFormats[0];
@@ -502,9 +537,9 @@ inline bool PipelineVK::TrySelectPhysicalDevice(const VkPhysicalDevice& a_physic
     }
 
     // Get the surface capabilities.
-    AssertSucceeded(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(a_physicalDevice,
-                                                              a_surface,
-                                                              &m_surfaceCapabilities));
+    VULKAN_ENSURE(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(a_physicalDevice,
+                                                            a_surface,
+                                                            &m_surfaceCapabilities));
 
     // Set the graphics and present queue family indices.
     m_graphicsQueueFamilyIndex = graphicsQueueFamilyIndex;
@@ -553,10 +588,10 @@ inline void PipelineVK::CreateLogicalDevice()
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
     // Create the device.
-    AssertSucceeded(vkCreateDevice(m_physicalDevice,
-                                   &createInfo,
-                                   nullptr,
-                                   &m_device));
+    VULKAN_ENSURE(vkCreateDevice(m_physicalDevice,
+                                 &createInfo,
+                                 nullptr,
+                                 &m_device));
 
     // Get the graphics queue.
     vkGetDeviceQueue(m_device,
@@ -616,23 +651,23 @@ inline void PipelineVK::CreateSwapChain()
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 
     // Create the swap chain.
-    AssertSucceeded(vkCreateSwapchainKHR(m_device,
-                                         &createInfo,
-                                         nullptr,
-                                         &m_swapChain));
+    VULKAN_ENSURE(vkCreateSwapchainKHR(m_device,
+                                       &createInfo,
+                                       nullptr,
+                                       &m_swapChain));
 
     // Get the count of swap chain images.
-    AssertSucceeded(vkGetSwapchainImagesKHR(m_device,
-                                            m_swapChain,
-                                            &imageCount,
-                                            nullptr));
+    VULKAN_ENSURE(vkGetSwapchainImagesKHR(m_device,
+                                          m_swapChain,
+                                          &imageCount,
+                                          nullptr));
 
     // Get the swap chain images.
     m_swapChainImages.resize(imageCount);
-    AssertSucceeded(vkGetSwapchainImagesKHR(m_device,
-                                            m_swapChain,
-                                            &imageCount,
-                                            m_swapChainImages.data()));
+    VULKAN_ENSURE(vkGetSwapchainImagesKHR(m_device,
+                                          m_swapChain,
+                                          &imageCount,
+                                          m_swapChainImages.data()));
 }
 
 //--------------------------------------------------------------
@@ -654,10 +689,10 @@ inline VkImageView CreateImageView(const VkImage& a_image,
 
     // Create the image view.
     VkImageView imageView;
-    AssertSucceeded(vkCreateImageView(a_device,
-                                      &viewInfo,
-                                      nullptr,
-                                      &imageView));
+    VULKAN_ENSURE(vkCreateImageView(a_device,
+                                    &viewInfo,
+                                    nullptr,
+                                    &imageView));
     return imageView;
 }
 
@@ -715,10 +750,10 @@ inline void PipelineVK::CreateRenderPass()
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 
     // Create the render pass.
-    AssertSucceeded(vkCreateRenderPass(m_device,
-                                       &renderPassInfo,
-                                       nullptr,
-                                       &m_renderPass));
+    VULKAN_ENSURE(vkCreateRenderPass(m_device,
+                                     &renderPassInfo,
+                                     nullptr,
+                                     &m_renderPass));
 }
 
 //--------------------------------------------------------------
@@ -749,10 +784,10 @@ inline void PipelineVK::CreateDescriptorSetLayout()
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 
     // Create the descriptor set layout.
-    AssertSucceeded(vkCreateDescriptorSetLayout(m_device,
-                                                &layoutInfo,
-                                                nullptr,
-                                                &m_descriptorSetLayout));
+    VULKAN_ENSURE(vkCreateDescriptorSetLayout(m_device,
+                                              &layoutInfo,
+                                              nullptr,
+                                              &m_descriptorSetLayout));
 }
 
 //--------------------------------------------------------------
@@ -889,10 +924,10 @@ inline VkShaderModule CreateShaderModule(const VkDevice& a_device,
 
     // Create the shader module.
     VkShaderModule shaderModule;
-    AssertSucceeded(vkCreateShaderModule(a_device,
-                                         &createInfo,
-                                         nullptr,
-                                         &shaderModule));
+    VULKAN_ENSURE(vkCreateShaderModule(a_device,
+                                       &createInfo,
+                                       nullptr,
+                                       &shaderModule));
     return shaderModule;
 }
 
@@ -1012,10 +1047,10 @@ inline void PipelineVK::CreateGraphicsPipeline()
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
     // Create the pipeline layout.
-    AssertSucceeded(vkCreatePipelineLayout(m_device,
-                                           &pipelineLayoutInfo,
-                                           nullptr,
-                                           &m_pipelineLayout));
+    VULKAN_ENSURE(vkCreatePipelineLayout(m_device,
+                                         &pipelineLayoutInfo,
+                                         nullptr,
+                                         &m_pipelineLayout));
 
     // Describe the graphics pipeline.
     VkGraphicsPipelineCreateInfo pipelineInfo = {};
@@ -1036,12 +1071,12 @@ inline void PipelineVK::CreateGraphicsPipeline()
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 
     // Create the graphics pipeline.
-    AssertSucceeded(vkCreateGraphicsPipelines(m_device,
-                                              VK_NULL_HANDLE,
-                                              1,
-                                              &pipelineInfo,
-                                              nullptr,
-                                              &m_graphicsPipeline));
+    VULKAN_ENSURE(vkCreateGraphicsPipelines(m_device,
+                                            VK_NULL_HANDLE,
+                                            1,
+                                            &pipelineInfo,
+                                            nullptr,
+                                            &m_graphicsPipeline));
 
     // Destroy the vertex and fragment shader modules.
     vkDestroyShaderModule(m_device, fragShaderModule, nullptr);
@@ -1068,10 +1103,10 @@ inline void PipelineVK::CreateFrameBuffers()
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 
         // Create the frame buffer.
-        AssertSucceeded(vkCreateFramebuffer(m_device,
-                                            &framebufferInfo,
-                                            nullptr,
-                                            &m_swapChainFrameBuffers[i]));
+        VULKAN_ENSURE(vkCreateFramebuffer(m_device,
+                                          &framebufferInfo,
+                                          nullptr,
+                                          &m_swapChainFrameBuffers[i]));
     }
 }
 
@@ -1085,16 +1120,16 @@ inline void PipelineVK::CreateCommandPool()
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 
     // Create the command pool.
-    AssertSucceeded(vkCreateCommandPool(m_device,
-                                        &poolInfo,
-                                        nullptr,
-                                        &m_commandPool));
+    VULKAN_ENSURE(vkCreateCommandPool(m_device,
+                                      &poolInfo,
+                                      nullptr,
+                                      &m_commandPool));
 }
 
 //--------------------------------------------------------------
 inline uint32_t FindMemoryType(const VkMemoryPropertyFlags& a_properties,
                                const VkPhysicalDevice& a_physicalDevice,
-                               const uint32_t& a_typeFilter )
+                               const uint32_t& a_typeFilter)
 {
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(a_physicalDevice,
@@ -1132,10 +1167,10 @@ inline void PipelineVK::CreateTextureImage()
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 
     // Create the image.
-    AssertSucceeded(vkCreateImage(m_device,
-                                  &imageInfo,
-                                  nullptr,
-                                  &m_textureImage));
+    VULKAN_ENSURE(vkCreateImage(m_device,
+                                &imageInfo,
+                                nullptr,
+                                &m_textureImage));
 
     // Get the memory requirements.
     VkMemoryRequirements memRequirements;
@@ -1152,16 +1187,16 @@ inline void PipelineVK::CreateTextureImage()
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 
     // Allocate the image memory.
-    AssertSucceeded(vkAllocateMemory(m_device,
-                                     &allocInfo,
-                                     nullptr,
-                                     &m_textureImageMemory));
+    VULKAN_ENSURE(vkAllocateMemory(m_device,
+                                   &allocInfo,
+                                   nullptr,
+                                   &m_textureImageMemory));
 
     // Bind the image memory.
-    AssertSucceeded(vkBindImageMemory(m_device,
-                                      m_textureImage,
-                                      m_textureImageMemory,
-                                      0));
+    VULKAN_ENSURE(vkBindImageMemory(m_device,
+                                    m_textureImage,
+                                    m_textureImageMemory,
+                                    0));
 }
 
 //--------------------------------------------------------------
@@ -1191,145 +1226,25 @@ inline void PipelineVK::CreateTextureSampler()
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 
     // Create the sampler.
-    AssertSucceeded(vkCreateSampler(m_device,
-                                    &samplerInfo,
-                                    nullptr,
-                                    &m_textureSampler));
+    VULKAN_ENSURE(vkCreateSampler(m_device,
+                                  &samplerInfo,
+                                  nullptr,
+                                  &m_textureSampler));
 }
 
 //--------------------------------------------------------------
-inline void CreateBuffer(const VkPhysicalDevice& a_physicalDevice,
-                         const VkDevice& a_device,
-                         const VkDeviceSize& a_size,
-                         const VkBufferUsageFlags& a_usage,
-                         const VkMemoryPropertyFlags& a_properties,
-                         VkBuffer& a_buffer,
-                         VkDeviceMemory& a_bufferMemory)
+inline void PipelineVK::CreateSharedBuffer()
 {
-    // Describe the buffer.
-    VkBufferCreateInfo bufferInfo = {};
-    bufferInfo.size = a_size;
-    bufferInfo.usage = a_usage;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-
-    // Create the buffer.
-    AssertSucceeded(vkCreateBuffer(a_device,
-                                   &bufferInfo,
-                                   nullptr,
-                                   &a_buffer));
-
-    // Get the memory requirements.
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(a_device,
-                                  a_buffer,
-                                  &memRequirements);
-
-    // Describe the memory.
-    VkMemoryAllocateInfo allocInfo = {};
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(a_properties,
-                                               a_physicalDevice,
-                                               memRequirements.memoryTypeBits);
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-
-    // Allocate the buffer memory.
-    AssertSucceeded(vkAllocateMemory(a_device,
-                                     &allocInfo,
-                                     nullptr,
-                                     &a_bufferMemory));
-
-    // Bind the buffer memory.
-    AssertSucceeded(vkBindBufferMemory(a_device,
-                                       a_buffer,
-                                       a_bufferMemory,
-                                       0));
-}
-
-//--------------------------------------------------------------
-inline void CopyBuffer(const VkDevice& a_device,
-                       const VkQueue& a_graphicsQueue,
-                       const VkCommandPool& a_commandPool,
-                       const VkBuffer& a_srcBuffer,
-                       const VkBuffer& a_dstBuffer,
-                       const VkDeviceSize& a_size)
-{
-    // Describe the command buffer.
-    VkCommandBufferAllocateInfo allocInfo = {};
-    allocInfo.commandBufferCount = 1;
-    allocInfo.commandPool = a_commandPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-
-    // Create the command buffer.
-    VkCommandBuffer commandBuffer;
-    AssertSucceeded(vkAllocateCommandBuffers(a_device,
-                                             &allocInfo,
-                                             &commandBuffer));
-
-    // Begin recording commands.
-    VkCommandBufferBeginInfo beginInfo = {};
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    AssertSucceeded(vkBeginCommandBuffer(commandBuffer,
-                                         &beginInfo));
-
-    // Copy the buffer.
-    VkBufferCopy copyRegion = {};
-    copyRegion.size = a_size;
-    vkCmdCopyBuffer(commandBuffer,
-                    a_srcBuffer,
-                    a_dstBuffer,
-                    1,
-                    &copyRegion);
-
-    // End recording commands.
-    AssertSucceeded(vkEndCommandBuffer(commandBuffer));
-
-    // Describe the submit info.
-    VkSubmitInfo submitInfo = {};
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-    // Submit commands to the queue.
-    AssertSucceeded(vkQueueSubmit(a_graphicsQueue,
-                                  1,
-                                  &submitInfo,
-                                  VK_NULL_HANDLE));
-
-    // Wait for the queue to process the commands.
-    AssertSucceeded(vkQueueWaitIdle(a_graphicsQueue));
-
-    // Free the command buffer.
-    vkFreeCommandBuffers(a_device,
-                         a_commandPool,
-                         1,
-                         &commandBuffer);
-}
-
-//--------------------------------------------------------------
-inline void PipelineVK::CreateTextureBuffer()
-{
-    // Calculate the image size.
-    const VkDeviceSize imageSize = Buffer::MinSizeBytes(m_bufferConfig);
-
-    // Create the texture buffer.
-    CreateBuffer(m_physicalDevice,
-                 m_device,
-                 imageSize,
-                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 m_textureBuffer,
-                 m_textureBufferMemory);
-
-    // Map the texture buffer.
-    AssertSucceeded(vkMapMemory(m_device,
-                                m_textureBufferMemory,
-                                0,
-                                imageSize,
-                                0,
-                                m_bufferData));
+    if (m_bufferConfig.interop == Buffer::Interop::HOST)
+    {
+        m_interopVK = std::make_unique<InteropVKHost>(*this);
+    }
+    else if (m_bufferConfig.interop == Buffer::Interop::CUDA)
+    {
+    #ifdef CUDA_SUPPORTED
+        m_interopVK = std::make_unique<InteropVKCuda>(*this);
+    #endif // CUDA_SUPPORTED
+    }
 }
 
 //--------------------------------------------------------------
@@ -1338,43 +1253,36 @@ inline void PipelineVK::CreateVertexBuffer()
     // Create the staging buffer.
     VkBuffer stagingBuffer;
     VkDeviceMemory stagingBufferMemory;
-    VkDeviceSize bufferSize = sizeof(QuadVertices[0]) *
-                                     QuadVertices.size();
-    CreateBuffer(m_physicalDevice,
-                 m_device,
-                 bufferSize,
+    VkDeviceSize vertexBufferSize = sizeof(QuadVertices[0]) *
+                                           QuadVertices.size();
+    CreateBuffer(stagingBuffer,
+                 stagingBufferMemory,
+                 vertexBufferSize,
                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 stagingBuffer,
-                 stagingBufferMemory);
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     // Copy vertices from the CPU to the GPU staging buffer.
     void* data;
-    AssertSucceeded(vkMapMemory(m_device,
-                                stagingBufferMemory,
-                                0,
-                                bufferSize,
-                                0,
-                                &data));
-    memcpy(data, QuadVertices.data(), (size_t)bufferSize);
+    VULKAN_ENSURE(vkMapMemory(m_device,
+                              stagingBufferMemory,
+                              0,
+                              vertexBufferSize,
+                              0,
+                              &data));
+    memcpy(data, QuadVertices.data(), (size_t)vertexBufferSize);
     vkUnmapMemory(m_device, stagingBufferMemory);
 
     // Create the vertex buffer.
-    CreateBuffer(m_physicalDevice,
-                 m_device,
-                 bufferSize,
+    CreateBuffer(m_vertexBuffer,
+                 m_vertexBufferMemory,
+                 vertexBufferSize,
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 m_vertexBuffer,
-                 m_vertexBufferMemory);
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     // Copy vertices from the staging buffer to the final buffer.
-    CopyBuffer(m_device,
-               m_graphicsQueue,
-               m_commandPool,
-               stagingBuffer,
+    CopyBuffer(stagingBuffer,
                m_vertexBuffer,
-               bufferSize);
+               vertexBufferSize);
 
     // Destroy the staging buffer.
     vkDestroyBuffer(m_device, stagingBuffer, nullptr);
@@ -1387,43 +1295,36 @@ inline void PipelineVK::CreateIndexBuffer()
     // Create the staging buffer.
     VkBuffer stagingBuffer;
     VkDeviceMemory stagingBufferMemory;
-    VkDeviceSize bufferSize = sizeof(QuadIndices[0]) *
-                                     QuadIndices.size();
-    CreateBuffer(m_physicalDevice,
-                 m_device,
-                 bufferSize,
+    VkDeviceSize indexBufferSize = sizeof(QuadIndices[0]) *
+                                          QuadIndices.size();
+    CreateBuffer(stagingBuffer,
+                 stagingBufferMemory,
+                 indexBufferSize,
                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 stagingBuffer,
-                 stagingBufferMemory);
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     // Copy indices from the CPU to the GPU staging buffer.
     void* data;
-    AssertSucceeded(vkMapMemory(m_device,
-                                stagingBufferMemory,
-                                0,
-                                bufferSize,
-                                0,
-                                &data));
-    memcpy(data, QuadIndices.data(), (size_t)bufferSize);
+    VULKAN_ENSURE(vkMapMemory(m_device,
+                              stagingBufferMemory,
+                              0,
+                              indexBufferSize,
+                              0,
+                              &data));
+    memcpy(data, QuadIndices.data(), (size_t)indexBufferSize);
     vkUnmapMemory(m_device, stagingBufferMemory);
 
     // Create the index buffer.
-    CreateBuffer(m_physicalDevice,
-                 m_device,
-                 bufferSize,
+    CreateBuffer(m_indexBuffer,
+                 m_indexBufferMemory,
+                 indexBufferSize,
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 m_indexBuffer,
-                 m_indexBufferMemory);
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     // Copy indices from the staging buffer to the final buffer.
-    CopyBuffer(m_device,
-               m_graphicsQueue,
-               m_commandPool,
-               stagingBuffer,
+    CopyBuffer(stagingBuffer,
                m_indexBuffer,
-               bufferSize);
+               indexBufferSize);
 
     // Destroy the staging buffer.
     vkDestroyBuffer(m_device, stagingBuffer, nullptr);
@@ -1448,10 +1349,10 @@ inline void PipelineVK::CreateDescriptorPool()
     poolInfo.maxSets = N;
 
     // Create the descriptor pool.
-    AssertSucceeded(vkCreateDescriptorPool(m_device,
-                                           &poolInfo,
-                                           nullptr,
-                                           &m_descriptorPool));
+    VULKAN_ENSURE(vkCreateDescriptorPool(m_device,
+                                         &poolInfo,
+                                         nullptr,
+                                         &m_descriptorPool));
 }
 
 //--------------------------------------------------------------
@@ -1467,9 +1368,9 @@ inline void PipelineVK::CreateDescriptorSets()
 
     // Create the descriptor sets.
     m_descriptorSets.resize(N);
-    AssertSucceeded(vkAllocateDescriptorSets(m_device,
-                                             &allocInfo,
-                                             m_descriptorSets.data()));
+    VULKAN_ENSURE(vkAllocateDescriptorSets(m_device,
+                                           &allocInfo,
+                                           m_descriptorSets.data()));
 
     // Update the descriptor sets.
     for (size_t n = 0; n < N; ++n)
@@ -1504,9 +1405,9 @@ inline void PipelineVK::CreateCommandBuffers()
 
     // Create the command buffers.
     m_commandBuffers.resize(N);
-    AssertSucceeded(vkAllocateCommandBuffers(m_device,
-                                             &allocInfo,
-                                             m_commandBuffers.data()));
+    VULKAN_ENSURE(vkAllocateCommandBuffers(m_device,
+                                           &allocInfo,
+                                           m_commandBuffers.data()));
 }
 
 //--------------------------------------------------------------
@@ -1527,19 +1428,133 @@ inline void PipelineVK::CreateSyncObjects()
     m_inFlightFences.resize(N);
     for (size_t n = 0; n < N; ++n)
     {
-        AssertSucceeded(vkCreateSemaphore(m_device,
-                                          &semaphoreInfo,
-                                          nullptr,
-                                          &m_imageAvailableSemaphores[n]));
-        AssertSucceeded(vkCreateSemaphore(m_device,
-                                          &semaphoreInfo,
-                                          nullptr,
-                                          &m_renderFinishedSemaphores[n]));
-        AssertSucceeded(vkCreateFence(m_device,
-                                      &fenceInfo,
-                                      nullptr,
-                                      &m_inFlightFences[n]));
+        VULKAN_ENSURE(vkCreateSemaphore(m_device,
+                                        &semaphoreInfo,
+                                        nullptr,
+                                        &m_imageAvailableSemaphores[n]));
+        VULKAN_ENSURE(vkCreateSemaphore(m_device,
+                                        &semaphoreInfo,
+                                        nullptr,
+                                        &m_renderFinishedSemaphores[n]));
+        VULKAN_ENSURE(vkCreateFence(m_device,
+                                    &fenceInfo,
+                                    nullptr,
+                                    &m_inFlightFences[n]));
     }
+}
+
+//--------------------------------------------------------------
+inline VkDeviceSize PipelineVK::CreateBuffer(VkBuffer& a_buffer,
+                                             VkDeviceMemory& a_bufferMemory,
+                                             const VkDeviceSize a_bufferSize,
+                                             const VkBufferUsageFlags a_bufferUsageFlags,
+                                             const VkMemoryPropertyFlags a_memoryPropertyFlags,
+                                             const void* a_bufferCreateInfoNext,
+                                             const void* a_memoryAllocateInfoNext)
+{
+    // Describe the buffer.
+    VkBufferCreateInfo bufferInfo = {};
+    bufferInfo.size = a_bufferSize;
+    bufferInfo.usage = a_bufferUsageFlags;
+    bufferInfo.pNext = a_bufferCreateInfoNext;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+
+    // Create the buffer.
+    VULKAN_ENSURE(vkCreateBuffer(m_device,
+                                 &bufferInfo,
+                                 nullptr,
+                                 &a_buffer));
+
+    // Get the memory requirements.
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(m_device,
+                                  a_buffer,
+                                  &memRequirements);
+
+    // Describe the memory.
+    VkMemoryAllocateInfo allocInfo = {};
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.pNext = a_memoryAllocateInfoNext;
+    allocInfo.memoryTypeIndex = FindMemoryType(a_memoryPropertyFlags,
+                                               m_physicalDevice,
+                                               memRequirements.memoryTypeBits);
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+
+    // Allocate the buffer memory.
+    VULKAN_ENSURE(vkAllocateMemory(m_device,
+                                   &allocInfo,
+                                   nullptr,
+                                   &a_bufferMemory));
+
+    // Bind the buffer memory.
+    VULKAN_ENSURE(vkBindBufferMemory(m_device,
+                                     a_buffer,
+                                     a_bufferMemory,
+                                     0));
+
+    return allocInfo.allocationSize;
+}
+
+
+
+//--------------------------------------------------------------
+inline void PipelineVK::CopyBuffer(const VkBuffer& a_sourceBuffer,
+                                   const VkBuffer& a_destinationBuffer,
+                                   const VkDeviceSize a_sourceBufferSize)
+{
+    // Describe the command buffer.
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.commandBufferCount = 1;
+    allocInfo.commandPool = m_commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+
+    // Create the command buffer.
+    VkCommandBuffer commandBuffer;
+    VULKAN_ENSURE(vkAllocateCommandBuffers(m_device,
+                                           &allocInfo,
+                                           &commandBuffer));
+
+    // Begin recording commands.
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    VULKAN_ENSURE(vkBeginCommandBuffer(commandBuffer,
+                                       &beginInfo));
+
+    // Copy the buffer.
+    VkBufferCopy copyRegion = {};
+    copyRegion.size = a_sourceBufferSize;
+    vkCmdCopyBuffer(commandBuffer,
+                    a_sourceBuffer,
+                    a_destinationBuffer,
+                    1,
+                    &copyRegion);
+
+    // End recording commands.
+    VULKAN_ENSURE(vkEndCommandBuffer(commandBuffer));
+
+    // Describe the submit info.
+    VkSubmitInfo submitInfo = {};
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    // Submit commands to the queue.
+    VULKAN_ENSURE(vkQueueSubmit(m_graphicsQueue,
+                                1,
+                                &submitInfo,
+                                VK_NULL_HANDLE));
+
+    // Wait for the queue to process the commands.
+    VULKAN_ENSURE(vkQueueWaitIdle(m_graphicsQueue));
+
+    // Free the command buffer.
+    vkFreeCommandBuffers(m_device,
+                         m_commandPool,
+                         1,
+                         &commandBuffer);
 }
 
 //--------------------------------------------------------------
@@ -1601,37 +1616,37 @@ inline void TransitionImageLayout(const VkImage& a_image,
 inline void PipelineVK::RenderFrame()
 {
     // Wait for the last frame which used this index to complete.
-    AssertSucceeded(vkWaitForFences(m_device,
-                                    1,
-                                    &m_inFlightFences[m_currentFrameIndex],
-                                    VK_TRUE,
-                                    UINT64_MAX));
+    VULKAN_ENSURE(vkWaitForFences(m_device,
+                                  1,
+                                  &m_inFlightFences[m_currentFrameIndex],
+                                  VK_TRUE,
+                                  UINT64_MAX));
 
     // Get the next image index.
     uint32_t imageIndex;
-    AssertSucceeded(vkAcquireNextImageKHR(m_device,
-                                          m_swapChain,
-                                          UINT64_MAX,
-                                          m_imageAvailableSemaphores[m_currentFrameIndex],
-                                          VK_NULL_HANDLE,
-                                          &imageIndex));
+    VULKAN_ENSURE(vkAcquireNextImageKHR(m_device,
+                                        m_swapChain,
+                                        UINT64_MAX,
+                                        m_imageAvailableSemaphores[m_currentFrameIndex],
+                                        VK_NULL_HANDLE,
+                                        &imageIndex));
 
     // Reset the fences for this frame.
-    AssertSucceeded(vkResetFences(m_device,
-                                  1,
-                                  &m_inFlightFences[m_currentFrameIndex]));
+    VULKAN_ENSURE(vkResetFences(m_device,
+                                1,
+                                &m_inFlightFences[m_currentFrameIndex]));
 
     // Record all commands for this frame.
     {
         // Reset the command buffer for this frame.
         VkCommandBuffer commandBuffer = m_commandBuffers[m_currentFrameIndex];
-        AssertSucceeded(vkResetCommandBuffer(commandBuffer, 0));
+        VULKAN_ENSURE(vkResetCommandBuffer(commandBuffer, 0));
 
         // Begin recording commands for this frame.
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        AssertSucceeded(vkBeginCommandBuffer(commandBuffer,
-                                             &beginInfo));
+        VULKAN_ENSURE(vkBeginCommandBuffer(commandBuffer,
+                                           &beginInfo));
 
         // Transition the texture image to a copy destination.
         TransitionImageLayout(m_textureImage,
@@ -1653,9 +1668,9 @@ inline void PipelineVK::RenderFrame()
                                m_bufferConfig.height,
                                1 };
 
-        // Copy the mapped texture buffer to the texture image.
+        // Copy the shared buffer to the texture image.
         vkCmdCopyBufferToImage(commandBuffer,
-                               m_textureBuffer,
+                               m_sharedBuffer,
                                m_textureImage,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                1,
@@ -1738,7 +1753,7 @@ inline void PipelineVK::RenderFrame()
         vkCmdEndRenderPass(commandBuffer);
 
         // End recording commands for this frame.
-        AssertSucceeded(vkEndCommandBuffer(commandBuffer));
+        VULKAN_ENSURE(vkEndCommandBuffer(commandBuffer));
     }
 
     // Describe the submit info.
@@ -1756,10 +1771,10 @@ inline void PipelineVK::RenderFrame()
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
     // Submit all commands to the queue.
-    AssertSucceeded(vkQueueSubmit(m_graphicsQueue,
-                                  1, 
-                                  &submitInfo,
-                                  m_inFlightFences[m_currentFrameIndex]));
+    VULKAN_ENSURE(vkQueueSubmit(m_graphicsQueue,
+                                1, 
+                                &submitInfo,
+                                m_inFlightFences[m_currentFrameIndex]));
 
     // Describe the present.
     VkSwapchainKHR swapChains[] = { m_swapChain };
@@ -1772,8 +1787,8 @@ inline void PipelineVK::RenderFrame()
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
     // Present the rendered image on the display.
-    AssertSucceeded(vkQueuePresentKHR(m_presentQueue,
-                                      &presentInfo));
+    VULKAN_ENSURE(vkQueuePresentKHR(m_presentQueue,
+                                    &presentInfo));
 
     // Cycle to the next frame index.
     m_currentFrameIndex = (m_currentFrameIndex + 1) % N;

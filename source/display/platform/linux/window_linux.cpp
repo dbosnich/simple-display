@@ -13,6 +13,16 @@
 
 #include <assert.h>
 
+//--------------------------------------------------------------
+#if NDEBUG
+#define X11_ENSURE(x11FunctionCall) (x11FunctionCall)
+#else
+#define X11_ENSURE(x11FunctionCall) do {                        \
+    Status status = (x11FunctionCall);                          \
+    assert(status);                                             \
+} while(0)
+#endif // NDEBUG
+
 namespace Simple
 {
 namespace Display
@@ -117,13 +127,6 @@ ImplPtr Window::Implementation::Create(const Config& a_config)
 }
 
 //--------------------------------------------------------------
-inline void AssertSucceeded(Status a_status)
-{
-    (void)a_status;
-    assert(a_status);
-}
-
-//--------------------------------------------------------------
 WindowLinux::WindowLinux(const Window::Config& a_config)
 {
     // Store the thread local native display.
@@ -145,8 +148,8 @@ WindowLinux::WindowLinux(const Window::Config& a_config)
                                          CWBackingStore);
     m_xWindow = XCreateWindow(m_xDisplay,
                               DefaultRootWindow(m_xDisplay),
-                              0,
-                              0,
+                              a_config.initialPositionX,
+                              a_config.initialPositionY,
                               a_config.initialWidth,
                               a_config.initialHeight,
                               0,
@@ -158,9 +161,9 @@ WindowLinux::WindowLinux(const Window::Config& a_config)
     assert(m_xWindow);
 
     // Set the name of the native window.
-    AssertSucceeded(XStoreName(m_xDisplay,
-                               m_xWindow,
-                               a_config.titleUTF8.c_str()));
+    X11_ENSURE(XStoreName(m_xDisplay,
+                          m_xWindow,
+                          a_config.titleUTF8.c_str()));
 
     // Define various atom ids that are needed.
     m_xStateAtom = XInternAtom(m_xDisplay, "_NET_WM_STATE", False);
@@ -173,10 +176,10 @@ WindowLinux::WindowLinux(const Window::Config& a_config)
     m_xFrameExtentsAtom = XInternAtom(m_xDisplay, "_NET_FRAME_EXTENTS", False);
 
     // Prevent the window manager from deleting the window.
-    AssertSucceeded(XSetWMProtocols(m_xDisplay,
-                                    m_xWindow,
-                                    &m_xDeleteWindowAtom,
-                                    1));
+    X11_ENSURE(XSetWMProtocols(m_xDisplay,
+                               m_xWindow,
+                               &m_xDeleteWindowAtom,
+                               1));
 
     // Select the events to process.
     const long windowEventMask = ExposureMask |
@@ -186,18 +189,18 @@ WindowLinux::WindowLinux(const Window::Config& a_config)
                                  SubstructureRedirectMask |
                                  FocusChangeMask |
                                  PropertyChangeMask;
-    AssertSucceeded(XSelectInput(m_xDisplay,
-                                 m_xWindow,
-                                 windowEventMask));
+    X11_ENSURE(XSelectInput(m_xDisplay,
+                            m_xWindow,
+                            windowEventMask));
     const long rootWindowEventMask = StructureNotifyMask |
                                      SubstructureNotifyMask |
                                      PropertyChangeMask;
-    AssertSucceeded(XSelectInput(m_xDisplay,
-                                 DefaultRootWindow(m_xDisplay),
-                                 rootWindowEventMask));
+    X11_ENSURE(XSelectInput(m_xDisplay,
+                            DefaultRootWindow(m_xDisplay),
+                            rootWindowEventMask));
 
     // Flush the native window creation.
-    AssertSucceeded(XFlush(m_xDisplay));
+    X11_ENSURE(XFlush(m_xDisplay));
 }
 
 //--------------------------------------------------------------
@@ -207,10 +210,10 @@ WindowLinux::~WindowLinux()
     Hide();
 
     // Destroy the native window.
-    AssertSucceeded(XDestroyWindow(m_xDisplay, m_xWindow));
+    X11_ENSURE(XDestroyWindow(m_xDisplay, m_xWindow));
 
     // Flush the native window destruction.
-    AssertSucceeded(XFlush(m_xDisplay));
+    X11_ENSURE(XFlush(m_xDisplay));
 }
 
 //--------------------------------------------------------------
@@ -222,9 +225,9 @@ void WindowLinux::Show()
     }
 
     // Show the native window.
-    AssertSucceeded(XClearWindow(m_xDisplay, m_xWindow));
-    AssertSucceeded(XMapRaised(m_xDisplay, m_xWindow));
-    AssertSucceeded(XFlush(m_xDisplay));
+    X11_ENSURE(XClearWindow(m_xDisplay, m_xWindow));
+    X11_ENSURE(XMapRaised(m_xDisplay, m_xWindow));
+    X11_ENSURE(XFlush(m_xDisplay));
 
     // Wait for the window to become visible.
     while (!IsVisible()) {}
@@ -242,8 +245,8 @@ void WindowLinux::Hide()
     Restore();
 
     // Hide the native window.
-    AssertSucceeded(XUnmapWindow(m_xDisplay, m_xWindow));
-    AssertSucceeded(XFlush(m_xDisplay));
+    X11_ENSURE(XUnmapWindow(m_xDisplay, m_xWindow));
+    X11_ENSURE(XFlush(m_xDisplay));
 
     // Wait for the window to become invisible.
     while (IsVisible()) {}
@@ -279,12 +282,12 @@ void WindowLinux::Maximize()
     maximizeEvent.xclient.data.l[0] = 1; // Add property
     maximizeEvent.xclient.data.l[1] = m_xStateMaxHorzAtom;
     maximizeEvent.xclient.data.l[2] = m_xStateMaxVertAtom;
-    AssertSucceeded(XSendEvent(m_xDisplay,
-                               DefaultRootWindow(m_xDisplay),
-                               False,
-                               SubstructureNotifyMask | SubstructureRedirectMask,
-                               &maximizeEvent));
-    AssertSucceeded(XFlush(m_xDisplay));
+    X11_ENSURE(XSendEvent(m_xDisplay,
+                          DefaultRootWindow(m_xDisplay),
+                          False,
+                          SubstructureNotifyMask | SubstructureRedirectMask,
+                          &maximizeEvent));
+    X11_ENSURE(XFlush(m_xDisplay));
 
     // Wait for the native window to maximize.
     while (!IsMaximized()) {}
@@ -299,10 +302,10 @@ void WindowLinux::Minimize()
     }
 
     // Minimize the native window.
-    AssertSucceeded(XIconifyWindow(m_xDisplay,
-                                   m_xWindow,
-                                   DefaultScreen(m_xDisplay)));
-    AssertSucceeded(XFlush(m_xDisplay));
+    X11_ENSURE(XIconifyWindow(m_xDisplay,
+                              m_xWindow,
+                              DefaultScreen(m_xDisplay)));
+    X11_ENSURE(XFlush(m_xDisplay));
 
     // Wait for the native window to minimize.
     // ToDo: IsMinimized doesn't work.
@@ -333,12 +336,12 @@ void WindowLinux::Restore()
         restoreEvent.xclient.data.l[0] = 0; // Remove property
         restoreEvent.xclient.data.l[1] = m_xStateMaxHorzAtom;
         restoreEvent.xclient.data.l[2] = m_xStateMaxVertAtom;
-        AssertSucceeded(XSendEvent(m_xDisplay,
-                                   DefaultRootWindow(m_xDisplay),
-                                   False,
-                                   SubstructureNotifyMask | SubstructureRedirectMask,
-                                   &restoreEvent));
-        AssertSucceeded(XFlush(m_xDisplay));
+        X11_ENSURE(XSendEvent(m_xDisplay,
+                              DefaultRootWindow(m_xDisplay),
+                              False,
+                              SubstructureNotifyMask | SubstructureRedirectMask,
+                              &restoreEvent));
+        X11_ENSURE(XFlush(m_xDisplay));
 
         // Wait for the native window to restore.
         while (IsMaximized()) {}
@@ -396,12 +399,12 @@ void WindowLinux::FullScreen(Bool a_enable)
     fulScreenEvent.xclient.data.l[0] = a_enable;
     fulScreenEvent.xclient.data.l[1] = m_xStateFullScreenAtom;
     fulScreenEvent.xclient.data.l[2] = None;
-    AssertSucceeded(XSendEvent(m_xDisplay,
-                               DefaultRootWindow(m_xDisplay),
-                               False,
-                               SubstructureNotifyMask | SubstructureRedirectMask,
-                               &fulScreenEvent));
-    AssertSucceeded(XFlush(m_xDisplay));
+    X11_ENSURE(XSendEvent(m_xDisplay,
+                          DefaultRootWindow(m_xDisplay),
+                          False,
+                          SubstructureNotifyMask | SubstructureRedirectMask,
+                          &fulScreenEvent));
+    X11_ENSURE(XFlush(m_xDisplay));
 
     // Wait for the window to transition to/from full screen.
     while (a_enable != IsFullScreen()) {}

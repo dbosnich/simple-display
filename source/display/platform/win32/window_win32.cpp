@@ -105,12 +105,18 @@ WindowWin32::WindowWin32(const Window::Config& a_config)
     // Create the native window.
     std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> con;
     std::wstring titleUTF16 = con.from_bytes(a_config.titleUTF8);
+    const int initialPositionX = a_config.initialPositionX ?
+                                 a_config.initialPositionX :
+                                 CW_USEDEFAULT;
+    const int initialPositionY = a_config.initialPositionY ?
+                                 a_config.initialPositionY :
+                                 CW_USEDEFAULT;
     m_windowHandle = ::CreateWindowExW(WS_EX_APPWINDOW,
                                        CLASS_NAME,
                                        titleUTF16.c_str(),
                                        WS_OVERLAPPEDWINDOW,
-                                       CW_USEDEFAULT,
-                                       CW_USEDEFAULT,
+                                       initialPositionX,
+                                       initialPositionY,
                                        a_config.initialWidth,
                                        a_config.initialHeight,
                                        nullptr,

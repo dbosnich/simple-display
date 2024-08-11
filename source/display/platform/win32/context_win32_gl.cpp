@@ -36,12 +36,7 @@
 #endif // OPENGL_USE_LEGACY_COMPATIBILITY_PROFILE_IMPLEMENTATION
 #pragma warning(pop)
 
-//--------------------------------------------------------------
-//! Controls whether any OpenGL debug messages should be output.
-//--------------------------------------------------------------
-#ifndef OPENGL_DEBUG_ON
-#define OPENGL_DEBUG_ON !NDEBUG
-#endif//OPENGL_DEBUG_ON
+#include <display/graphics/opengl/debug_gl.h>
 
 using namespace Simple::Display;
 using namespace Simple::Display::OpenGL;
@@ -113,7 +108,7 @@ ContextWin32GL::ContextWin32GL(const Context::Config& a_config)
     gladLoaderLoadGL();
 
     // Enable debug info.
-#if defined(GL_DEBUG_OUTPUT) && OPENGL_DEBUG_ON
+#if defined(GL_DEBUG_OUTPUT) && OPENGL_DEBUG_SETTING
     glEnable(GL_DEBUG_OUTPUT);
     glDebugMessageCallback(DebugMessageCallback, 0);
 #endif

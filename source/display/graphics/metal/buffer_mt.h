@@ -44,6 +44,7 @@ protected:
     uint32_t GetWidth() const override;
     uint32_t GetHeight() const override;
     Buffer::Format GetFormat() const override;
+    Buffer::Interop GetInterop() const override;
 
 private:
     Buffer::Config m_config = Buffer::Config::Invalid();
@@ -168,6 +169,12 @@ inline uint32_t BufferMT::GetHeight() const
 inline Buffer::Format BufferMT::GetFormat() const
 {
     return m_config.format;
+}
+
+//--------------------------------------------------------------
+inline Buffer::Interop BufferMT::GetInterop() const
+{
+    return m_config.interop;
 }
 
 } // namespace Metal

@@ -12,7 +12,7 @@ if (NOT CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 endif()
 
 # Gather test files.
-file(GLOB_RECURSE test_files *.h *.cpp)
+file(GLOB_RECURSE test_files *.h *.cpp *.cu)
 
 # Group test files for the IDE.
 source_group(TREE "${PROJECT_SOURCE_DIR}/tests"
@@ -53,8 +53,22 @@ add_executable(${TEST_TARGET} ${test_files})
 target_link_libraries(${TEST_TARGET} ${LIB_TARGET} Catch2::Catch2 simple_application)
 target_include_directories(${TEST_TARGET} PRIVATE .)
 target_compile_options(${TEST_TARGET} PRIVATE
-  $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /GR->
-  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Werror -fno-rtti>)
+  $<$<COMPILE_LANGUAGE:CXX>:
+    $<$<CXX_COMPILER_ID:MSVC>: /GR- /W4 /WX>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-rtti -Wall -Werror -Wextra>
+  >
+)
+
+# Add CUDA dependencies.
+find_package(CUDAToolkit)
+if (${CUDAToolkit_FOUND})
+    enable_language(CUDA)
+    target_compile_definitions(${TEST_TARGET} PRIVATE CUDA_SUPPORTED)
+else()
+    # Ensure CUDA files are displayed but not built.
+    file(GLOB_RECURSE cuda_files *.cu)
+    set_source_files_properties(${cuda_files} PROPERTIES HEADER_FILE_ONLY TRUE)
+endif()
 
 # Add the test executable to the RUN_TESTS target.
 add_test(NAME ${TEST_TARGET} COMMAND ${TEST_TARGET})

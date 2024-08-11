@@ -25,28 +25,62 @@ inline void RequireBufferValues(const Buffer& a_buffer,
     REQUIRE(a_buffer.GetWidth() == a_config.width);
     REQUIRE(a_buffer.GetHeight() == a_config.height);
     REQUIRE(a_buffer.GetFormat() == a_config.format);
+    REQUIRE(a_buffer.GetInterop() == a_config.interop);
 
     switch (a_config.format)
     {
         case Buffer::Format::RGBA_FLOAT:
         {
-            REQUIRE(a_buffer.GetData<float>());
+            if (a_buffer.GetInterop() == Buffer::Interop::HOST)
+            {
+                REQUIRE(a_buffer.GetData<float>());
+                REQUIRE(!a_buffer.GetData<float, Buffer::Interop::CUDA>());
+            }
+            else
+            {
+                REQUIRE(!a_buffer.GetData<float>());
+                REQUIRE(a_buffer.GetData<float, Buffer::Interop::CUDA>());
+            }
             REQUIRE(!a_buffer.GetData<uint8_t>());
             REQUIRE(!a_buffer.GetData<uint16_t>());
+            REQUIRE(!a_buffer.GetData<uint8_t, Buffer::Interop::CUDA>());
+            REQUIRE(!a_buffer.GetData<uint16_t, Buffer::Interop::CUDA>());
         }
         break;
         case Buffer::Format::RGBA_UINT8:
         {
+            if (a_buffer.GetInterop() == Buffer::Interop::HOST)
+            {
+                REQUIRE(a_buffer.GetData<uint8_t>());
+                REQUIRE(!a_buffer.GetData<uint8_t, Buffer::Interop::CUDA>());
+            }
+            else
+            {
+                REQUIRE(!a_buffer.GetData<uint8_t>());
+                REQUIRE(a_buffer.GetData<uint8_t, Buffer::Interop::CUDA>());
+            }
             REQUIRE(!a_buffer.GetData<float>());
-            REQUIRE(a_buffer.GetData<uint8_t>());
             REQUIRE(!a_buffer.GetData<uint16_t>());
+            REQUIRE(!a_buffer.GetData<float, Buffer::Interop::CUDA>());
+            REQUIRE(!a_buffer.GetData<uint16_t, Buffer::Interop::CUDA>());
         }
         break;
         case Buffer::Format::RGBA_UINT16:
         {
+            if (a_buffer.GetInterop() == Buffer::Interop::HOST)
+            {
+                REQUIRE(a_buffer.GetData<uint16_t>());
+                REQUIRE(!a_buffer.GetData<uint16_t, Buffer::Interop::CUDA>());
+            }
+            else
+            {
+                REQUIRE(!a_buffer.GetData<uint16_t>());
+                REQUIRE(a_buffer.GetData<uint16_t, Buffer::Interop::CUDA>());
+            }
             REQUIRE(!a_buffer.GetData<float>());
             REQUIRE(!a_buffer.GetData<uint8_t>());
-            REQUIRE(a_buffer.GetData<uint16_t>());
+            REQUIRE(!a_buffer.GetData<float, Buffer::Interop::CUDA>());
+            REQUIRE(!a_buffer.GetData<uint8_t, Buffer::Interop::CUDA>());
         }
         break;
         default:
@@ -68,6 +102,7 @@ TEST_CASE("Test Buffer None", "[buffer][none]")
     REQUIRE(buffer.GetWidth() == 0);
     REQUIRE(buffer.GetHeight() == 0);
     REQUIRE(buffer.GetFormat() == Buffer::Format::NONE);
+    REQUIRE(buffer.GetInterop() == Buffer::Interop::NONE);
 }
 
 //--------------------------------------------------------------
@@ -150,6 +185,33 @@ TEST_CASE("Test Buffer RGBA_UINT16", "[buffer][rgba_uint16]")
     Context context({ bufferConfig, {} });
     RequireBufferValues(context.GetBuffer(), bufferConfig);
 }
+
+#ifdef CUDA_SUPPORTED
+//--------------------------------------------------------------
+TEST_CASE("Test Buffer Interop CUDA", "[buffer][interop][cuda]")
+{
+    Buffer::Config bufferConfig;
+    bufferConfig.format = Buffer::Format::RGBA_FLOAT;
+    bufferConfig.interop = Buffer::Interop::CUDA;
+
+    Context context({ bufferConfig, {} });
+    Buffer& buffer = context.GetBuffer();
+    RequireBufferValues(buffer, bufferConfig);
+
+    bufferConfig.format = Buffer::Format::RGBA_UINT8;
+    buffer.Resize(bufferConfig);
+    RequireBufferValues(buffer, bufferConfig);
+
+    bufferConfig.format = Buffer::Format::RGBA_UINT16;
+    buffer.Resize(bufferConfig);
+    RequireBufferValues(buffer, bufferConfig);
+
+    bufferConfig.format = Buffer::Format::RGBA_FLOAT;
+    bufferConfig.interop = Buffer::Interop::HOST;
+    buffer.Resize(bufferConfig);
+    RequireBufferValues(buffer, bufferConfig);
+}
+#endif // CUDA_SUPPORTED
 
 //--------------------------------------------------------------
 TEST_CASE("Test Buffer Resize", "[buffer][resize]")

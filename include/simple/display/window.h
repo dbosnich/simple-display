@@ -35,6 +35,20 @@
 #endif//DEFAULT_WINDOW_HEIGHT
 
 //--------------------------------------------------------------
+//! The default initial x position of the window, set in pixels.
+//--------------------------------------------------------------
+#ifndef DEFAULT_WINDOW_POSITION_X
+#define DEFAULT_WINDOW_POSITION_X 0
+#endif//DEFAULT_WINDOW_POSITION_X
+
+//--------------------------------------------------------------
+//! The default initial y position of the window, set in pixels.
+//--------------------------------------------------------------
+#ifndef DEFAULT_WINDOW_POSITION_Y
+#define DEFAULT_WINDOW_POSITION_Y 0
+#endif//DEFAULT_WINDOW_POSITION_Y
+
+//--------------------------------------------------------------
 namespace Simple
 {
 namespace Display
@@ -65,6 +79,12 @@ public:
 
         //! The initial height of the window, measured in pixels.
         uint32_t initialHeight = DEFAULT_WINDOW_HEIGHT;
+
+        //! The initial x position of the window, set in pixels.
+        uint32_t initialPositionX = DEFAULT_WINDOW_POSITION_X;
+
+        //! The initial y position of the window, set in pixels.
+        uint32_t initialPositionY = DEFAULT_WINDOW_POSITION_Y;
     };
 
     Window(const Config& a_config);

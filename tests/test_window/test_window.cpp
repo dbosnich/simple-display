@@ -324,8 +324,8 @@ TEST_CASE("Test Window Events", "[window][events]")
 TEST_CASE("Test Window Dimensions", "[window][dimensions]")
 {
     Window::Config config;
-    config.initialWidth = 1920;
-    config.initialHeight = 1080;
+    config.initialWidth = 800;
+    config.initialHeight = 600;
     Window testWindow(config);
 
     uint32_t windowWidth = 0;
