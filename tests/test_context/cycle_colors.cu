@@ -13,63 +13,36 @@
 using namespace Simple::Display;
 using namespace std;
 
-__constant__ float COLORS_FLOAT[4][4];
-__constant__ uint8_t COLORS_UINT8[4][4];
-__constant__ uint16_t COLORS_UINT16[4][4];
+template <typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
+__constant__ DataType COLORS[NumColors][ChannelsPerPixel];
 
 //--------------------------------------------------------------
-template <typename BufferType>
-__global__ void CycleColorsKernel(BufferType* a_pixelBuffer,
-                                  uint32_t a_pixelWidth,
-                                  uint32_t a_pixelHeight,
-                                  uint32_t a_numChannels,
+template<typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
+__global__ void CycleColorsKernel(DataType* a_bufferData,
+                                  uint32_t a_bufferWidth,
+                                  uint32_t a_bufferHeight,
                                   uint32_t a_secondsElapsed)
 {
     const uint32_t x = blockIdx.x * blockDim.x + threadIdx.x;
     const uint32_t y = blockIdx.y * blockDim.y + threadIdx.y;
-    if (x >= a_pixelWidth || y >= a_pixelHeight)
+    if (x >= a_bufferWidth || y >= a_bufferHeight)
     {
         return;
     }
 
-    const uint32_t topLeftIndex = a_secondsElapsed % 4;
-    const int topRightIndex = (topLeftIndex == 3) ? 0 : topLeftIndex + 1;
-    const int bottomLeftIndex = (topRightIndex == 3) ? 0 : topRightIndex + 1;
-    const int bottomRightIndex = (bottomLeftIndex == 3) ? 0 : bottomLeftIndex + 1;
+    const uint32_t topLeftIndex = a_secondsElapsed % NumColors;
+    const uint32_t topRightIndex = (topLeftIndex == NumColors - 1) ? 0 : min(topLeftIndex + 1, NumColors);
+    const uint32_t bottomLeftIndex = (topRightIndex == NumColors - 1) ? 0 : min(topRightIndex + 1, NumColors);
+    const uint32_t bottomRightIndex = (bottomLeftIndex == NumColors - 1) ? 0 : min(bottomLeftIndex + 1, NumColors);
 
-    const BufferType* colorTopLeft = nullptr;
-    const BufferType* colorTopRight = nullptr;
-    const BufferType* colorBottomLeft = nullptr;
-    const BufferType* colorBottomRight = nullptr;
-    if constexpr (std::is_same<BufferType, float>::value)
-    {
-        colorTopLeft = COLORS_FLOAT[topLeftIndex];
-        colorTopRight = COLORS_FLOAT[topRightIndex];
-        colorBottomLeft = COLORS_FLOAT[bottomLeftIndex];
-        colorBottomRight = COLORS_FLOAT[bottomRightIndex];
-    }
-    else if constexpr (std::is_same<BufferType, uint8_t>::value)
-    {
-        colorTopLeft = COLORS_UINT8[topLeftIndex];
-        colorTopRight = COLORS_UINT8[topRightIndex];
-        colorBottomLeft = COLORS_UINT8[bottomLeftIndex];
-        colorBottomRight = COLORS_UINT8[bottomRightIndex];
-    }
-    else if constexpr (std::is_same<BufferType, uint16_t>::value)
-    {
-        colorTopLeft = COLORS_UINT16[topLeftIndex];
-        colorTopRight = COLORS_UINT16[topRightIndex];
-        colorBottomLeft = COLORS_UINT16[bottomLeftIndex];
-        colorBottomRight = COLORS_UINT16[bottomRightIndex];
-    }
-    else
-    {
-        static_assert(!std::is_same<BufferType, BufferType>::value, "Unsupported type");
-    }
+    const DataType* colorTopLeft = COLORS<DataType, ChannelsPerPixel, NumColors>[topLeftIndex];
+    const DataType* colorTopRight = COLORS<DataType, ChannelsPerPixel, NumColors>[topRightIndex];
+    const DataType* colorBottomLeft = COLORS<DataType, ChannelsPerPixel, NumColors>[bottomLeftIndex];
+    const DataType* colorBottomRight = COLORS<DataType, ChannelsPerPixel, NumColors>[bottomRightIndex];
 
-    const uint32_t quadrant = (x > (a_pixelWidth / 2)) +
-                              (2 * (y > (a_pixelHeight / 2)));
-    const BufferType* color = colorTopLeft;
+    const uint32_t quadrant = (x > (a_bufferWidth / 2)) +
+                              (2 * (y > (a_bufferHeight / 2)));
+    const DataType* color = colorTopLeft;
     switch (quadrant)
     {
         case 0: color = colorBottomLeft; break;
@@ -78,62 +51,59 @@ __global__ void CycleColorsKernel(BufferType* a_pixelBuffer,
         case 3: color = colorTopRight; break;
     }
 
-    const uint32_t i = (x * a_numChannels) +
-                       (y * a_pixelWidth * a_numChannels);
-    for (uint32_t z = 0; z < a_numChannels; ++z)
+    const uint32_t i = (x * ChannelsPerPixel) +
+                       (y * a_bufferWidth * ChannelsPerPixel);
+    for (uint32_t z = 0; z < ChannelsPerPixel; ++z)
     {
-        a_pixelBuffer[i + z] = color[z];
+        a_bufferData[i + z] = color[z];
     }
 }
 
 //--------------------------------------------------------------
-template <typename BufferType>
+template<typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
 extern void CycleColorsCuda(const Buffer& a_buffer,
                             float a_secondsElapsed)
 {
-    BufferType* pixelBuffer = a_buffer.GetData<BufferType, Buffer::Interop::CUDA>();
-    if (!pixelBuffer)
+    const uint32_t bufferWidth = a_buffer.GetWidth();
+    const uint32_t bufferHeight = a_buffer.GetHeight();
+    DataType* bufferData = a_buffer.GetData<DataType, Buffer::Interop::CUDA>();
+    if (!bufferData || !bufferWidth || !bufferHeight || !bufferData)
     {
         return;
     }
 
-    const uint32_t pixelWidth = a_buffer.GetWidth();
-    const uint32_t pixelHeight = a_buffer.GetHeight();
-    const uint32_t numChannels = Buffer::ChannelsPerPixel(a_buffer.GetFormat());
-
     dim3 blockDim(16, 16);
-    dim3 gridDim((pixelWidth + blockDim.x - 1) / blockDim.x,
-                 (pixelHeight + blockDim.y - 1) / blockDim.y);
-    CycleColorsKernel<<<gridDim, blockDim>>>(pixelBuffer,
-                                             pixelWidth,
-                                             pixelHeight,
-                                             numChannels,
-                                             (int)a_secondsElapsed);
+    dim3 gridDim((bufferWidth + blockDim.x - 1) / blockDim.x,
+                 (bufferHeight + blockDim.y - 1) / blockDim.y);
+    CycleColorsKernel<DataType, ChannelsPerPixel, NumColors><<<gridDim, blockDim>>>(bufferData,
+                                                                                    bufferWidth,
+                                                                                    bufferHeight,
+                                                                                    (uint32_t)a_secondsElapsed);
 }
 
 //--------------------------------------------------------------
-extern void CycleColorsCuda(const float a_colors[4][4],
+template<typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
+extern void CycleColorsCuda(const DataType a_colors[NumColors][ChannelsPerPixel],
                             const Buffer& a_buffer,
                             float a_secondsElapsed)
 {
-    cudaMemcpyToSymbol(COLORS_FLOAT, a_colors, 16 * sizeof(float));
-    CycleColorsCuda<float>(a_buffer, a_secondsElapsed);
+    cudaMemcpyToSymbol(COLORS<DataType, ChannelsPerPixel, NumColors>,
+                       a_colors,
+                       ChannelsPerPixel * NumColors * sizeof(DataType));
+    CycleColorsCuda<DataType, ChannelsPerPixel, NumColors>(a_buffer, a_secondsElapsed);
 }
 
 //--------------------------------------------------------------
-extern void CycleColorsCuda(const uint8_t a_colors[4][4],
-                            const Buffer& a_buffer,
-                            float a_secondsElapsed)
-{
-    cudaMemcpyToSymbol(COLORS_UINT8, a_colors, 16 * sizeof(uint8_t));
-    CycleColorsCuda<uint8_t>(a_buffer, a_secondsElapsed);
-}
+template void CycleColorsCuda<float, 4, 4>(const float a_colors[4][4],
+                                           const Buffer& a_buffer,
+                                           float a_secondsElapsed);
 
 //--------------------------------------------------------------
-extern void CycleColorsCuda(const uint16_t a_colors[4][4],
-                            const Buffer& a_buffer,
-                            float a_secondsElapsed)
-{
-    cudaMemcpyToSymbol(COLORS_UINT16, a_colors, 16 * sizeof(uint16_t));
-    CycleColorsCuda<uint16_t>(a_buffer, a_secondsElapsed);
-}
+template void CycleColorsCuda<uint8_t, 4, 4>(const uint8_t a_colors[4][4],
+                                             const Buffer& a_buffer,
+                                             float a_secondsElapsed);
+
+//--------------------------------------------------------------
+template void CycleColorsCuda<uint16_t, 4, 4>(const uint16_t a_colors[4][4],
+                                              const Buffer& a_buffer,
+                                              float a_secondsElapsed);

@@ -46,8 +46,8 @@ private:
     static void PrintFrameStats(const FrameStats& a_stats,
                                 bool a_atShutDown = false);
 
-    template<typename BufferType>
-    void CycleColors(const BufferType a_colors[4][4]);
+    template<typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
+    void CycleColors(const DataType a_colors[NumColors][ChannelsPerPixel]);
 
     const TestParams m_testParams;
     Context* m_context = nullptr;
@@ -169,7 +169,7 @@ void TestApplication::UpdatePixelBuffer()
                                              { 0.0f, 1.0f, 0.0f, 1.0f },
                                              { 0.0f, 0.0f, 1.0f, 1.0f },
                                              { 0.0f, 0.0f, 0.0f, 1.0f } };
-            CycleColors<float>(COLORS);
+            CycleColors<float, 4, 4>(COLORS);
         }
         break;
         case Buffer::Format::RGBA_UINT8:
@@ -178,7 +178,7 @@ void TestApplication::UpdatePixelBuffer()
                                                { 0, UINT8_MAX, 0, UINT8_MAX },
                                                { 0, 0, UINT8_MAX, UINT8_MAX },
                                                { 0, 0, 0, UINT8_MAX } };
-            CycleColors<uint8_t>(COLORS);
+            CycleColors<uint8_t, 4, 4>(COLORS);
         }
         break;
         case Buffer::Format::RGBA_UINT16:
@@ -187,7 +187,7 @@ void TestApplication::UpdatePixelBuffer()
                                                 { 0, UINT16_MAX, 0, UINT16_MAX },
                                                 { 0, 0, UINT16_MAX, UINT16_MAX },
                                                 { 0, 0, 0, UINT16_MAX } };
-            CycleColors<uint16_t>(COLORS);
+            CycleColors<uint16_t, 4, 4>(COLORS);
         }
         break;
         default:
@@ -198,37 +198,37 @@ void TestApplication::UpdatePixelBuffer()
 }
 
 //--------------------------------------------------------------
-template<typename BufferType>
-void CycleColorsHost(const BufferType a_colors[4][4],
+template<typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
+void CycleColorsHost(const DataType a_colors[NumColors][ChannelsPerPixel],
                      const Buffer& a_buffer,
                      float a_secondsElapsed)
 {
-    BufferType* pixelBuffer = a_buffer.GetData<BufferType>();
+    DataType* pixelBuffer = a_buffer.GetData<DataType>();
     if (!pixelBuffer)
     {
         return;
     }
 
     // Change the color of each quadrant every second.
-    const int topLeftIndex = (int)a_secondsElapsed % 4;
-    const int topRightIndex = (topLeftIndex == 3) ? 0 : topLeftIndex + 1;
-    const int bottomLeftIndex = (topRightIndex == 3) ? 0 : topRightIndex + 1;
-    const int bottomRightIndex = (bottomLeftIndex == 3) ? 0 : bottomLeftIndex + 1;
+    const uint32_t topLeftIndex = (uint32_t)a_secondsElapsed % NumColors;
+    const uint32_t topRightIndex = (topLeftIndex == NumColors - 1) ? 0 : min(topLeftIndex + 1, NumColors);
+    const uint32_t bottomLeftIndex = (topRightIndex == NumColors - 1) ? 0 : min(topRightIndex + 1, NumColors);
+    const uint32_t bottomRightIndex = (bottomLeftIndex == NumColors - 1) ? 0 : min(bottomLeftIndex + 1, NumColors);
 
-    const BufferType* colorTopLeft = a_colors[topLeftIndex];
-    const BufferType* colorTopRight = a_colors[topRightIndex];
-    const BufferType* colorBottomLeft = a_colors[bottomLeftIndex];
-    const BufferType* colorBottomRight = a_colors[bottomRightIndex];
+    const DataType* colorTopLeft = a_colors[topLeftIndex];
+    const DataType* colorTopRight = a_colors[topRightIndex];
+    const DataType* colorBottomLeft = a_colors[bottomLeftIndex];
+    const DataType* colorBottomRight = a_colors[bottomRightIndex];
 
     const uint32_t pixelWidth = a_buffer.GetWidth();
     const uint32_t pixelHeight = a_buffer.GetHeight();
-    const uint32_t numChannels = Buffer::ChannelsPerPixel(a_buffer.GetFormat());
+    assert(ChannelsPerPixel == Buffer::ChannelsPerPixel(a_buffer.GetFormat()));
     for (uint32_t y = 0; y < pixelHeight; ++y)
     {
         for (uint32_t x = 0; x < pixelWidth; ++x)
         {
             const uint32_t quadrant = (x > (pixelWidth / 2)) + (2 * (y > (pixelHeight / 2)));
-            const BufferType* color = colorTopLeft;
+            const DataType* color = colorTopLeft;
             switch (quadrant)
             {
                 case 0: color = colorBottomLeft; break;
@@ -236,8 +236,8 @@ void CycleColorsHost(const BufferType a_colors[4][4],
                 case 2: color = colorTopLeft; break;
                 case 3: color = colorTopRight; break;
             }
-            const uint32_t i = (x * numChannels) + (y * pixelWidth * numChannels);
-            for (uint32_t z = 0; z < numChannels; ++z)
+            const uint32_t i = (x * ChannelsPerPixel) + (y * pixelWidth * ChannelsPerPixel);
+            for (uint32_t z = 0; z < ChannelsPerPixel; ++z)
             {
                 pixelBuffer[i + z] = color[z];
             }
@@ -247,30 +247,25 @@ void CycleColorsHost(const BufferType a_colors[4][4],
 
 //--------------------------------------------------------------
 #ifdef CUDA_SUPPORTED
-extern void CycleColorsCuda(const float a_colors[4][4],
-                            const Buffer& a_buffer,
-                            float a_secondsElapsed);
-extern void CycleColorsCuda(const uint8_t a_colors[4][4],
-                            const Buffer& a_buffer,
-                            float a_secondsElapsed);
-extern void CycleColorsCuda(const uint16_t a_colors[4][4],
+template<typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
+extern void CycleColorsCuda(const DataType a_colors[NumColors][ChannelsPerPixel],
                             const Buffer& a_buffer,
                             float a_secondsElapsed);
 #endif // CUDA_SUPPORTED
 
 //--------------------------------------------------------------
-template<typename BufferType>
-void TestApplication::CycleColors(const BufferType a_colors[4][4])
+template<typename DataType, uint32_t ChannelsPerPixel, uint32_t NumColors>
+void TestApplication::CycleColors(const DataType a_colors[NumColors][ChannelsPerPixel])
 {
     const Buffer& buffer = m_context->GetBuffer();
     if (buffer.GetInterop() == Buffer::Interop::HOST)
     {
-        CycleColorsHost(a_colors, buffer, m_secondsElapsed);
+        CycleColorsHost<DataType, ChannelsPerPixel, NumColors>(a_colors, buffer, m_secondsElapsed);
     }
     else if (buffer.GetInterop() == Buffer::Interop::CUDA)
     {
     #ifdef CUDA_SUPPORTED
-        CycleColorsCuda(a_colors, buffer, m_secondsElapsed);
+        CycleColorsCuda<DataType, ChannelsPerPixel, NumColors>(a_colors, buffer, m_secondsElapsed);
     #endif // CUDA_SUPPORTED
     }
 }
@@ -503,10 +498,6 @@ TEST_CASE("Test Context Vulkan Threads", "[context][vulkan][threads]")
 //--------------------------------------------------------------
 TEST_CASE("Test Context All Threads", "[context][all][threads]")
 {
-    // Note: This test sometimes produces sporadic errors which
-    // seem to indicate running multiple different GraphicsAPIs
-    // at the same time may be causing memory stomps/overwites?
-
     TestParams testParams;
     Context::Config& contextConfig = testParams.contextConfig;
     Buffer::Config& bufferConfig = contextConfig.bufferConfig;
