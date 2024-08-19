@@ -152,17 +152,8 @@ inline PipelineMT::PipelineMT(MTKView* a_mtkView,
         }
 
         fragment float4
-        fragmentShaderFloat(VertexData in [[stage_in]],
-                            texture2d<half> colorTexture [[ texture(0) ]])
-        {
-            constexpr sampler textureSampler (mag_filter::linear,
-                                              min_filter::linear);
-            return float4(colorTexture.sample(textureSampler, in.textureUV));
-        }
-
-        fragment float4
-        fragmentShaderUint(VertexData in [[stage_in]],
-                           texture2d<uint> colorTexture [[ texture(0) ]])
+        fragmentShader(VertexData in [[stage_in]],
+                       texture2d<half> colorTexture [[ texture(0) ]])
         {
             constexpr sampler textureSampler (mag_filter::linear,
                                               min_filter::linear);
@@ -182,26 +173,7 @@ inline PipelineMT::PipelineMT(MTKView* a_mtkView,
     assert(vertexFunction);
 
     // Get the fragment shader function.
-    id<MTLFunction> fragmentFunction = nil;
-    switch (a_bufferFormat)
-    {
-        case MTLPixelFormatRGBA8Uint:
-        case MTLPixelFormatRGBA16Uint:
-        {
-            fragmentFunction = [library newFunctionWithName: @"fragmentShaderUint"];
-        }
-        break;
-        case MTLPixelFormatRGBA32Float:
-        {
-            fragmentFunction = [library newFunctionWithName: @"fragmentShaderFloat"];
-        }
-        break;
-        default:
-        {
-            fragmentFunction = nil;
-        }
-        break;
-    }
+    id<MTLFunction> fragmentFunction = [library newFunctionWithName : @"fragmentShader"];
     assert(fragmentFunction);
 
     // Describe the render pipeline.

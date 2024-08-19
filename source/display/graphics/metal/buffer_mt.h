@@ -75,8 +75,8 @@ constexpr MTLPixelFormat GetMetalPixelFormat(const Buffer::Format& a_format)
     switch (a_format)
     {
         case Buffer::Format::RGBA_FLOAT: return MTLPixelFormatRGBA32Float;
-        case Buffer::Format::RGBA_UINT8: return MTLPixelFormatRGBA8Uint;
-        case Buffer::Format::RGBA_UINT16: return MTLPixelFormatRGBA16Uint;
+        case Buffer::Format::RGBA_UINT8: return MTLPixelFormatRGBA8Unorm;
+        case Buffer::Format::RGBA_UINT16: return MTLPixelFormatRGBA16Unorm;
         default: return MTLPixelFormatInvalid;
     }
 }
