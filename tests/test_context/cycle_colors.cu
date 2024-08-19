@@ -87,6 +87,8 @@ extern void CycleColorsCuda(const DataType a_colors[NumColors][ChannelsPerPixel]
                             const Buffer& a_buffer,
                             float a_secondsElapsed)
 {
+    // Note: This is not thread safe, but it avoids the calling
+    // code needing CUDA specific code to pass a device pointer.
     cudaMemcpyToSymbol(COLORS<DataType, ChannelsPerPixel, NumColors>,
                        a_colors,
                        ChannelsPerPixel * NumColors * sizeof(DataType));

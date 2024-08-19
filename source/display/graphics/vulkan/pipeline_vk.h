@@ -225,8 +225,8 @@ constexpr VkFormat GetVkFormat(const Buffer::Format& a_format)
     switch (a_format)
     {
         case Buffer::Format::RGBA_FLOAT: format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
-        case Buffer::Format::RGBA_UINT8: format = VK_FORMAT_R8G8B8A8_UINT; break;
-        case Buffer::Format::RGBA_UINT16: format = VK_FORMAT_R16G16B16A16_UINT; break;
+        case Buffer::Format::RGBA_UINT8: format = VK_FORMAT_R8G8B8A8_UNORM; break;
+        case Buffer::Format::RGBA_UINT16: format = VK_FORMAT_R16G16B16A16_UNORM; break;
         default: format = VK_FORMAT_UNDEFINED; break;
     }
     assert(format != VK_FORMAT_UNDEFINED);
@@ -841,75 +841,32 @@ inline const std::vector<uint32_t>& GetVertShaderBuffer()
 }
 
 //--------------------------------------------------------------
-inline const std::vector<uint32_t>& GetFragShaderBuffer(const Buffer::Format& a_format)
+inline const std::vector<uint32_t>& GetFragShaderBuffer()
 {
     // The fragment shader source only needs to be compiled once.
-    std::vector<uint32_t>* fragShaderBuffer = nullptr;
-    static std::vector<uint32_t> fragShaderBufferUint;
-    static std::vector<uint32_t> fragShaderBufferFloat;
-    switch (a_format)
+    static std::vector<uint32_t> s_fragShaderBuffer;
+    if (s_fragShaderBuffer.empty())
     {
-        case Buffer::Format::RGBA_UINT8:
-        case Buffer::Format::RGBA_UINT16:
-        {
-            if (fragShaderBufferUint.empty())
+        const std::string fragShaderSourceUint =
+        R"(
+            #version 450
+
+            layout(location = 0) in vec2 fragUV;
+            layout(location = 0) out vec4 color;
+            layout(binding = 1) uniform sampler2D texSampler;
+
+            void main()
             {
-                const std::string fragShaderSourceUint =
-                R"(
-                    #version 450
-
-                    layout(location = 0) in vec2 fragUV;
-                    layout(location = 0) out vec4 color;
-                    layout(binding = 1) uniform usampler2D texSampler;
-
-                    void main()
-                    {
-                        color = texture(texSampler, fragUV);
-                    }
-                )";
-                CompileShader(fragShaderSourceUint,
-                              "frag_shader",
-                              shaderc_glsl_fragment_shader,
-                              fragShaderBufferUint);
+                color = texture(texSampler, fragUV);
             }
-            fragShaderBuffer = &fragShaderBufferUint;
-        }
-        break;
-
-        case Buffer::Format::RGBA_FLOAT:
-        {
-            if (fragShaderBufferFloat.empty())
-            {
-                const std::string fragShaderSourceFloat =
-                R"(
-                    #version 450
-
-                    layout(location = 0) in vec2 fragUV;
-                    layout(location = 0) out vec4 color;
-                    layout(binding = 1) uniform sampler2D texSampler;
-
-                    void main()
-                    {
-                        color = texture(texSampler, fragUV);
-                    }
-                )";
-                CompileShader(fragShaderSourceFloat,
-                              "frag_shader",
-                              shaderc_glsl_fragment_shader,
-                              fragShaderBufferFloat);
-            }
-            fragShaderBuffer = &fragShaderBufferFloat;
-        }
-        break;
-        default:
-        {
-            fragShaderBuffer = nullptr;
-        }
-        break;
+        )";
+        CompileShader(fragShaderSourceUint,
+                        "frag_shader",
+                        shaderc_glsl_fragment_shader,
+                      s_fragShaderBuffer);
     }
 
-    assert(fragShaderBuffer);
-    return *fragShaderBuffer;
+    return s_fragShaderBuffer;
 }
 
 //--------------------------------------------------------------
@@ -939,7 +896,7 @@ inline void PipelineVK::CreateGraphicsPipeline()
     VkShaderModule vertShaderModule = CreateShaderModule(m_device, vertShaderBuffer);
 
     // Create the fragment shader module.
-    const std::vector<uint32_t>& fragShaderBuffer = GetFragShaderBuffer(m_bufferConfig.format);
+    const std::vector<uint32_t>& fragShaderBuffer = GetFragShaderBuffer();
     VkShaderModule fragShaderModule = CreateShaderModule(m_device, fragShaderBuffer);
 
     // Describe the vertex shader stage.
