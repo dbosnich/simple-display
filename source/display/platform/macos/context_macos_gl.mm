@@ -80,7 +80,7 @@ ContextMacOSGL::~ContextMacOSGL()
     m_window->Hide();
 
     // Destroy the buffer.
-    delete(m_buffer);
+    delete m_buffer;
     m_buffer = nullptr;
 
     // Release the OpenGL view.
@@ -88,7 +88,7 @@ ContextMacOSGL::~ContextMacOSGL()
     m_nsOpenGLView = nullptr;
 
     // Destroy the window.
-    delete(m_window);
+    delete m_window;
     m_window = nullptr;
 }
 

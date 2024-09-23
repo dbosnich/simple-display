@@ -117,7 +117,7 @@ void TestApplication::StartUp()
 void TestApplication::ShutDown()
 {
     // Destroy the display context.
-    delete(m_context);
+    delete m_context;
     m_context = nullptr;
 
     if (m_testParams.printAtShutDown)

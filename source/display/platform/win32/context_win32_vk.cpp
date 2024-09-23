@@ -53,7 +53,7 @@ ContextWin32VK::~ContextWin32VK()
     m_window->Hide();
 
     // Destroy the buffer.
-    delete(m_buffer);
+    delete m_buffer;
     m_buffer = nullptr;
 
     // Destroy the pipeline context.
@@ -61,7 +61,7 @@ ContextWin32VK::~ContextWin32VK()
     assert(m_pipelineContext == nullptr);
 
     // Destroy the window.
-    delete(m_window);
+    delete m_window;
     m_window = nullptr;
 }
 

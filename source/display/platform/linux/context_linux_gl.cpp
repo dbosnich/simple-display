@@ -73,7 +73,7 @@ ContextLinuxGL::~ContextLinuxGL()
     m_window->Hide();
 
     // Destroy the buffer.
-    delete(m_buffer);
+    delete m_buffer;
     m_buffer = nullptr;
 
     // Get the native display handle.
@@ -89,7 +89,7 @@ ContextLinuxGL::~ContextLinuxGL()
     m_glxContext = nullptr;
 
     // Destroy the window.
-    delete(m_window);
+    delete m_window;
     m_window = nullptr;
 }
 

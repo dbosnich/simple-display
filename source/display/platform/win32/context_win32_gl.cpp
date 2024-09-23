@@ -137,7 +137,7 @@ ContextWin32GL::~ContextWin32GL()
     m_window->Hide();
 
     // Destroy the buffer.
-    delete(m_buffer);
+    delete m_buffer;
     m_buffer = nullptr;
 
     // Deactivate the rendering context.
@@ -158,7 +158,7 @@ ContextWin32GL::~ContextWin32GL()
     m_deviceContext = nullptr;
 
     // Destroy the window.
-    delete(m_window);
+    delete m_window;
     m_window = nullptr;
 }
 

@@ -110,7 +110,7 @@ void MyApplication::StartUp()
 void MyApplication::ShutDown()
 {
     // Destroy the display context.
-    delete(m_context);
+    delete m_context;
     m_context = nullptr;
 }
 

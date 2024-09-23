@@ -60,7 +60,7 @@ ContextMacOSMT::~ContextMacOSMT()
     m_window->Hide();
 
     // Destroy the buffer.
-    delete(m_buffer);
+    delete m_buffer;
     m_buffer = nullptr;
 
     // Release the Metal view.
@@ -68,7 +68,7 @@ ContextMacOSMT::~ContextMacOSMT()
     m_metalView = nullptr;
 
     // Destroy the window.
-    delete(m_window);
+    delete m_window;
     m_window = nullptr;
 }
 
