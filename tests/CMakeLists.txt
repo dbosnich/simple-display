@@ -42,8 +42,8 @@ FetchContent_MakeAvailable(simple_application)
 
 # Group SimpleApplication files for the IDE.
 get_target_property(application_header_files simple_application INTERFACE_SOURCES)
-get_target_property(application_source_dir simple_application SOURCE_DIR)
-source_group(TREE "${application_source_dir}/include"
+get_target_property(application_include_dirs simple_application INTERFACE_INCLUDE_DIRECTORIES)
+source_group(TREE ${application_include_dirs}
              PREFIX "include"
              FILES ${application_header_files})
 
