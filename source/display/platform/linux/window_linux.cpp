@@ -69,11 +69,14 @@ protected:
     void* GetNativeDisplayHandle() const override;
     void* GetNativeWindowHandle() const override;
 
+    Window::NativeInputEvents* GetNativeInputEvents() override;
+    Window::NativeTextEvents* GetNativeTextEvents() override;
+
+private:
     void ProcessEvent(const XEvent& a_event);
     void CacheFrameExtents();
     bool IsNativeWindowInState(const Atom& a_stateAtom) const;
 
-private:
     class ThreadLocalDisplay
     {
     public:
@@ -99,6 +102,7 @@ private:
     };
     static thread_local ThreadLocalDisplay tl_display;
 
+    Window::NativeInputEvents m_nativeInputEvents;
     ::Display* m_xDisplay = nullptr;
     ::Window m_xWindow = 0;
     bool m_isClosed = false;
@@ -523,6 +527,18 @@ void* WindowLinux::GetNativeWindowHandle() const
 }
 
 //--------------------------------------------------------------
+Window::NativeInputEvents* WindowLinux::GetNativeInputEvents()
+{
+    return &m_nativeInputEvents;
+}
+
+//--------------------------------------------------------------
+Window::NativeTextEvents* WindowLinux::GetNativeTextEvents()
+{
+    return nullptr;
+}
+
+//--------------------------------------------------------------
 void WindowLinux::ProcessEvent(const XEvent& a_event)
 {
     if (a_event.type == ClientMessage &&
@@ -536,6 +552,10 @@ void WindowLinux::ProcessEvent(const XEvent& a_event)
              a_event.xproperty.atom == m_xFrameExtentsAtom)
     {
         CacheFrameExtents();
+    }
+    else
+    {
+        m_nativeInputEvents.Dispatch(&a_event);
     }
 }
 

@@ -24,6 +24,9 @@ public:
     virtual ~Implementation() = default;
 
 protected:
+    // Platform specific factory function creates implementation.
+    static std::unique_ptr<Implementation> Create(const Config&);
+
     friend class Context;
     Implementation() = default;
 
@@ -35,9 +38,6 @@ protected:
 
     virtual void OnFrameStart() = 0;
     virtual void OnFrameEnded() = 0;
-
-    // Platform specific factory function creates implementation.
-    static std::unique_ptr<Implementation> Create(const Config&);
 };
 
 } // namespace Display

@@ -388,3 +388,54 @@ TEST_CASE("Test Window Multiple", "[window][multiple]")
     testWindow2.Hide();
     testWindow1.Hide();
 }
+
+//--------------------------------------------------------------
+TEST_CASE("Test Window Text Events", "[window][text_events]")
+{
+    Window testWindow1({ "Window 1" });
+    Window testWindow2({ "Window 2" });
+
+    testWindow1.Show();
+    testWindow2.Show();
+
+    Window::NativeTextEvents::Listener listener1;
+    if (auto textEvents = testWindow1.GetNativeTextEvents())
+    {
+        listener1 = textEvents->Register([](const std::string& a_string)
+        {
+            printf("Window 1: %s\n", a_string.c_str());
+        });
+    }
+
+    Window::NativeTextEvents::Listener listener2;
+    if (auto textEvents = testWindow2.GetNativeTextEvents())
+    {
+        listener2 = textEvents->Register([](const std::string& a_string)
+        {
+            printf("Window 2: %s\n", a_string.c_str());
+        });
+    }
+
+    // Change to true to test interacting with the two windows.
+    bool waitForUserToClose = false;
+
+    bool closed1 = false;
+    bool closed2 = false;
+    do
+    {
+        if (!closed1)
+        {
+            testWindow1.PumpWindowEventsUntilEmpty();
+            closed1 = testWindow1.IsClosed();
+        }
+        if (!closed2)
+        {
+            testWindow2.PumpWindowEventsUntilEmpty();
+            closed2 = testWindow2.IsClosed();
+        }
+    }
+    while (waitForUserToClose && !(closed1 && closed2));
+
+    testWindow2.Hide();
+    testWindow1.Hide();
+}

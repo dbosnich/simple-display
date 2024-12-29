@@ -239,8 +239,7 @@ void Window::GetWindowDimensions(uint32_t& o_width,
 //--------------------------------------------------------------
 //! Get a pointer/handle to the platform specific native display.
 //!
-//! \return A pointer to the platform specific native display if
-//!         it exists, or nullptr otherwise.
+//! \return Native display handle if it exists nullptr otherwise.
 //--------------------------------------------------------------
 void* Window::GetNativeDisplayHandle() const
 {
@@ -250,10 +249,112 @@ void* Window::GetNativeDisplayHandle() const
 //--------------------------------------------------------------
 //! Get a pointer/handle to the platform specific native window.
 //!
-//! \return A pointer to the platform specific native window if
-//!         it exists, or nullptr otherwise.
+//! \return Native window handle if it exists, nullptr otherwise.
 //--------------------------------------------------------------
 void* Window::GetNativeWindowHandle() const
 {
     return m_pimpl ? m_pimpl->GetNativeWindowHandle() : nullptr;
 }
+
+//--------------------------------------------------------------
+//! Get a pointer to the platform specific native input events.
+//!
+//! \return Native input events if they exist, nullptr otherwise.
+//--------------------------------------------------------------
+Window::NativeInputEvents* Window::GetNativeInputEvents() const
+{
+    return m_pimpl ? m_pimpl->GetNativeInputEvents() : nullptr;
+}
+
+//--------------------------------------------------------------
+//! Get a pointer to the platform specific native text events.
+//!
+//! \return Native text events if they exist, nullptr otherwise.
+//--------------------------------------------------------------
+Window::NativeTextEvents* Window::GetNativeTextEvents() const
+{
+    return m_pimpl ? m_pimpl->GetNativeTextEvents() : nullptr;
+}
+
+//--------------------------------------------------------------
+//! Registers a callable to invoke when each event is dispatched.
+//!
+//! \param[in] a_callable A callable object that will be invoked.
+//! \return Listener to retain while callable should be invoked.
+//!         Release all references to 'deregister' the callable.
+//--------------------------------------------------------------
+template<typename T>
+typename Window::NativeEvents<T>::Listener
+Window::NativeEvents<T>::Register(const Callable& a_callable)
+{
+    // Create the listener and add it to the container.
+    std::lock_guard<std::mutex> lock(m_listenersMutex);
+    Listener listener = std::make_shared<Callable>(a_callable);
+    m_listeners.push_back(listener);
+    return listener;
+}
+
+//--------------------------------------------------------------
+//! Remove a listener so not invoked when events are dispatched.
+//!
+//! \param[in] a_listener Listener object to stop being invoked.
+//! \return True if the listener was removed or false otherwise.
+//--------------------------------------------------------------
+template<typename T>
+bool Window::NativeEvents<T>::Remove(const Listener& a_listener)
+{
+    // Find and remove the listener from the container.
+    std::lock_guard<std::mutex> lock(m_listenersMutex);
+    const auto& listenersBegin = m_listeners.begin();
+    const auto& listenersEnd = m_listeners.end();
+    for (auto it = listenersBegin; it != listenersEnd; ++it)
+    {
+        if (it->lock() == a_listener)
+        {
+            m_listeners.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
+//--------------------------------------------------------------
+template<typename T>
+void Window::NativeEvents<T>::Dispatch(T a_nativeEvent)
+{
+    // Gather non-expired listeners.
+    std::vector<Listener> listeners;
+    {
+        std::lock_guard<std::mutex> lock(m_listenersMutex);
+        listeners.reserve(m_listeners.size());
+
+        // Iterate over all listeners.
+        auto it = m_listeners.begin();
+        while (it != m_listeners.end())
+        {
+            if (Listener listener = it->lock())
+            {
+                // Copy non-expired listeners.
+                listeners.push_back(listener);
+                ++it;
+            }
+            else
+            {
+                // Prune expired listeners.
+                it = m_listeners.erase(it);
+            }
+        }
+    }
+
+    // Send the event to each listener.
+    for (Listener listener : listeners)
+    {
+        if (Callable callable = *listener)
+        {
+            callable(a_nativeEvent);
+        }
+    }
+}
+
+template class Window::NativeEvents<const void*>;
+template class Window::NativeEvents<const std::string&>;

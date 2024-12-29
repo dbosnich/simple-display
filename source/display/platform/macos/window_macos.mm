@@ -56,7 +56,11 @@ protected:
     void* GetNativeDisplayHandle() const override;
     void* GetNativeWindowHandle() const override;
 
+    Window::NativeInputEvents* GetNativeInputEvents() override;
+    Window::NativeTextEvents* GetNativeTextEvents() override;
+
 private:
+    Window::NativeInputEvents m_nativeInputEvents;
     NSWindow* m_nsWindow;
     bool m_isTransitioning = false;
     bool m_isVisible = false;
@@ -292,6 +296,7 @@ void WindowMacOS::PumpWindowEventsUntilEmpty()
                                                       inMode: NSDefaultRunLoopMode
                                                      dequeue: YES])
         {
+            m_nativeInputEvents.Dispatch(event);
             [NSApp sendEvent: event];
         }
     }
@@ -356,6 +361,18 @@ void* WindowMacOS::GetNativeDisplayHandle() const
 void* WindowMacOS::GetNativeWindowHandle() const
 {
     return m_nsWindow;
+}
+
+//--------------------------------------------------------------
+Window::NativeInputEvents* WindowMacOS::GetNativeInputEvents()
+{
+    return &m_nativeInputEvents;
+}
+
+//--------------------------------------------------------------
+Window::NativeTextEvents* WindowMacOS::GetNativeTextEvents()
+{
+    return nullptr;
 }
 
 //--------------------------------------------------------------

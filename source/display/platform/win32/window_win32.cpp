@@ -15,6 +15,17 @@
 using namespace Simple::Display;
 
 //--------------------------------------------------------------
+class UTF16ToUTF8Converter
+{
+public:
+    std::string Feed(uint16_t a_codeUnitUTF16);
+
+private:
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> m_converter;
+    uint16_t m_leadSurrogate = 0;
+};
+
+//--------------------------------------------------------------
 class WindowWin32 : public Window::Implementation
 {
 public:
@@ -28,6 +39,8 @@ public:
     WindowWin32& operator=(const WindowWin32&) = delete;
 
     void OnNativeWindowDestroyed();
+    void OnNativeInputEvent(RAWINPUT* a_rawInput);
+    void OnNativeTextEvent(const USHORT a_codeUnitUTF16);
 
 protected:
     void Show() override;
@@ -59,7 +72,13 @@ protected:
     void* GetNativeDisplayHandle() const override;
     void* GetNativeWindowHandle() const override;
 
+    Window::NativeInputEvents* GetNativeInputEvents() override;
+    Window::NativeTextEvents* GetNativeTextEvents() override;
+
 private:
+    Window::NativeInputEvents m_nativeInputEvents;
+    Window::NativeTextEvents m_nativeTextEvents;
+    UTF16ToUTF8Converter m_utf16ToUtf8Converter;
     HWND m_windowHandle = nullptr;
     bool m_isFullScreen = false;
     bool m_isVisible = false;
@@ -356,9 +375,37 @@ void* WindowWin32::GetNativeWindowHandle() const
 }
 
 //--------------------------------------------------------------
+Window::NativeInputEvents* WindowWin32::GetNativeInputEvents()
+{
+    return &m_nativeInputEvents;
+}
+
+//--------------------------------------------------------------
+Window::NativeTextEvents* WindowWin32::GetNativeTextEvents()
+{
+    return &m_nativeTextEvents;
+}
+
+//--------------------------------------------------------------
 void WindowWin32::OnNativeWindowDestroyed()
 {
     m_isClosed = true;
+}
+
+//--------------------------------------------------------------
+void WindowWin32::OnNativeInputEvent(RAWINPUT* a_rawInput)
+{
+    m_nativeInputEvents.Dispatch(a_rawInput);
+}
+
+//--------------------------------------------------------------
+void WindowWin32::OnNativeTextEvent(const USHORT a_codeUnitUTF16)
+{
+    auto utf8 = m_utf16ToUtf8Converter.Feed(a_codeUnitUTF16);
+    if (!utf8.empty())
+    {
+        m_nativeTextEvents.Dispatch(utf8);
+    }
 }
 
 //--------------------------------------------------------------
@@ -368,7 +415,7 @@ LRESULT CALLBACK OnWindowMessage(HWND a_handle,
                                  LPARAM a_lParam)
 {
     // The create message is called before user data can be set.
-    // Passing 'm_pimpl' to CreateWindowExW makes it accessible
+    // Passing 'this' to CreateWindowExW can make it accessible
     // from the create message where it can be set as user data,
     // in turn used to forward all messages to the right window.
     WindowWin32* window = nullptr;
@@ -381,15 +428,104 @@ LRESULT CALLBACK OnWindowMessage(HWND a_handle,
     }
     else
     {
-        LONG_PTR userData = ::GetWindowLongPtrW(a_handle, GWLP_USERDATA);
+        LONG_PTR userData = ::GetWindowLongPtrW(a_handle,
+                                                GWLP_USERDATA);
         window = (WindowWin32*)userData;
     }
 
-    if (window && a_message == WM_DESTROY)
+    if (!window)
     {
-        window->OnNativeWindowDestroyed();
-        return 0;
+        return ::DefWindowProcW(a_handle,
+                                a_message,
+                                a_wParam,
+                                a_lParam);
     }
 
-    return ::DefWindowProcW(a_handle, a_message, a_wParam, a_lParam);
+    switch (a_message)
+    {
+        case WM_DESTROY:
+        {
+            window->OnNativeWindowDestroyed();
+            return 0;
+        }
+        break;
+        case WM_CHAR:
+        {
+            const USHORT codeUnitUTF16 = (USHORT)(a_wParam);
+            window->OnNativeTextEvent(codeUnitUTF16);
+            return 0;
+        }
+        break;
+        case WM_INPUT:
+        {
+            UINT rawInputSize;
+            HRAWINPUT hRawInput = (HRAWINPUT)a_lParam;
+            const UINT headerSize = sizeof(RAWINPUTHEADER);
+            ::GetRawInputData(hRawInput,
+                                RID_INPUT,
+                                NULL,
+                                &rawInputSize,
+                                headerSize);
+
+            std::vector<BYTE> rawInputBytes(rawInputSize);
+            LPBYTE rawInputBytesData = rawInputBytes.data();
+            ::GetRawInputData(hRawInput,
+                                RID_INPUT,
+                                rawInputBytesData,
+                                &rawInputSize,
+                                headerSize);
+
+            RAWINPUT* rawInput = (RAWINPUT*)rawInputBytesData;
+            window->OnNativeInputEvent(rawInput);
+            return 0;
+        }
+        break;
+        default:
+        {
+            return ::DefWindowProcW(a_handle,
+                                    a_message,
+                                    a_wParam,
+                                    a_lParam);
+        }
+        break;
+    }
+}
+
+//--------------------------------------------------------------
+std::string UTF16ToUTF8Converter::Feed(uint16_t a_codeUnitUTF16)
+{
+    std::string codePointUTF8;
+
+    if (IS_HIGH_SURROGATE(a_codeUnitUTF16))
+    {
+        // Store the lead surrogate and wait for the trailing.
+        m_leadSurrogate = a_codeUnitUTF16;
+    }
+    else if (IS_LOW_SURROGATE(a_codeUnitUTF16))
+    {
+        if (m_leadSurrogate)
+        {
+            // Convert UTF-16 surrogate pair to UTF-8 code point.
+            const wchar_t codePointUTF16[2] = { m_leadSurrogate,
+                                                a_codeUnitUTF16 };
+            codePointUTF8 = m_converter.to_bytes(codePointUTF16,
+                                                 codePointUTF16 + 2);
+            m_leadSurrogate = 0;
+        }
+        else
+        {
+            // Encoding error
+            m_leadSurrogate = 0;
+        }
+    }
+    else
+    {
+        // Convert standalone UTF-16 code point to UTF-8 code point.
+        const wchar_t codePointUTF16[1] = { a_codeUnitUTF16 };
+        codePointUTF8 = m_converter.to_bytes(codePointUTF16,
+                                             codePointUTF16 + 1);
+        m_leadSurrogate = 0;
+    }
+
+    return codePointUTF8;
 }

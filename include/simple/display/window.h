@@ -8,8 +8,11 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 //! @file
 
@@ -121,6 +124,35 @@ public:
 
     void* GetNativeDisplayHandle() const;
     void* GetNativeWindowHandle() const;
+
+    //----------------------------------------------------------
+    //! Class that manages a collection of native event listener
+    //! functions to be invoked each time an event is dispatched.
+    //!
+    //! \tparam T The type of the native event to be dispatched.
+    //----------------------------------------------------------
+    template<typename T>
+    class NativeEvents
+    {
+    public:
+        using Callable = std::function<void(T)>;
+        using Listener = std::shared_ptr<Callable>;
+
+        [[nodiscard]]
+        Listener Register(const Callable& a_callable);
+        bool Remove(const Listener& a_listener);
+        void Dispatch(T a_nativeEvent);
+
+    private:
+        std::vector<std::weak_ptr<Callable>> m_listeners;
+        std::mutex m_listenersMutex;
+    };
+
+    using NativeInputEvents = NativeEvents<const void*>;
+    using NativeTextEvents = NativeEvents<const std::string&>;
+
+    NativeInputEvents* GetNativeInputEvents() const;
+    NativeTextEvents* GetNativeTextEvents() const;
 
 private:
     const std::unique_ptr<Implementation> m_pimpl;

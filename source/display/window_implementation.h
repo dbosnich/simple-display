@@ -24,6 +24,9 @@ public:
     virtual ~Implementation() = default;
 
 protected:
+    // Platform specific factory function creates implementation.
+    static std::unique_ptr<Implementation> Create(const Config&);
+
     friend class Window;
     Implementation() = default;
 
@@ -59,8 +62,8 @@ protected:
     virtual void* GetNativeDisplayHandle() const = 0;
     virtual void* GetNativeWindowHandle() const = 0;
 
-    // Platform specific factory function creates implementation.
-    static std::unique_ptr<Implementation> Create(const Config&);
+    virtual NativeInputEvents* GetNativeInputEvents() = 0;
+    virtual NativeTextEvents* GetNativeTextEvents() = 0;
 };
 
 } // namespace Display
