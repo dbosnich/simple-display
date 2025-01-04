@@ -62,6 +62,7 @@ protected:
     virtual void* GetNativeDisplayHandle() const = 0;
     virtual void* GetNativeWindowHandle() const = 0;
 
+    virtual NativeDeviceEvents* GetNativeDeviceEvents() = 0;
     virtual NativeInputEvents* GetNativeInputEvents() = 0;
     virtual NativeTextEvents* GetNativeTextEvents() = 0;
 };

@@ -257,6 +257,16 @@ void* Window::GetNativeWindowHandle() const
 }
 
 //--------------------------------------------------------------
+//! Get a pointer to the platform specific native device events.
+//!
+//! \return Native device events if they exist nullptr otherwise.
+//--------------------------------------------------------------
+Window::NativeDeviceEvents* Window::GetNativeDeviceEvents() const
+{
+    return m_pimpl ? m_pimpl->GetNativeDeviceEvents() : nullptr;
+}
+
+//--------------------------------------------------------------
 //! Get a pointer to the platform specific native input events.
 //!
 //! \return Native input events if they exist, nullptr otherwise.

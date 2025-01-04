@@ -56,6 +56,7 @@ protected:
     void* GetNativeDisplayHandle() const override;
     void* GetNativeWindowHandle() const override;
 
+    Window::NativeDeviceEvents* GetNativeDeviceEvents() override;
     Window::NativeInputEvents* GetNativeInputEvents() override;
     Window::NativeTextEvents* GetNativeTextEvents() override;
 
@@ -361,6 +362,12 @@ void* WindowMacOS::GetNativeDisplayHandle() const
 void* WindowMacOS::GetNativeWindowHandle() const
 {
     return m_nsWindow;
+}
+
+//--------------------------------------------------------------
+Window::NativeDeviceEvents* WindowMacOS::GetNativeDeviceEvents()
+{
+    return nullptr;
 }
 
 //--------------------------------------------------------------

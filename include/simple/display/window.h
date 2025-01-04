@@ -148,9 +148,11 @@ public:
         std::mutex m_listenersMutex;
     };
 
+    using NativeDeviceEvents = NativeEvents<const void*>;
     using NativeInputEvents = NativeEvents<const void*>;
     using NativeTextEvents = NativeEvents<const std::string&>;
 
+    NativeDeviceEvents* GetNativeDeviceEvents() const;
     NativeInputEvents* GetNativeInputEvents() const;
     NativeTextEvents* GetNativeTextEvents() const;
 

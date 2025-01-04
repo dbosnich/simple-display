@@ -39,6 +39,7 @@ public:
     WindowWin32& operator=(const WindowWin32&) = delete;
 
     void OnNativeWindowDestroyed();
+    void OnNativeDeviceEvent(WPARAM a_wParam);
     void OnNativeInputEvent(RAWINPUT* a_rawInput);
     void OnNativeTextEvent(const USHORT a_codeUnitUTF16);
 
@@ -72,10 +73,12 @@ protected:
     void* GetNativeDisplayHandle() const override;
     void* GetNativeWindowHandle() const override;
 
+    Window::NativeDeviceEvents* GetNativeDeviceEvents() override;
     Window::NativeInputEvents* GetNativeInputEvents() override;
     Window::NativeTextEvents* GetNativeTextEvents() override;
 
 private:
+    Window::NativeDeviceEvents m_nativeDeviceEvents;
     Window::NativeInputEvents m_nativeInputEvents;
     Window::NativeTextEvents m_nativeTextEvents;
     UTF16ToUTF8Converter m_utf16ToUtf8Converter;
@@ -375,6 +378,12 @@ void* WindowWin32::GetNativeWindowHandle() const
 }
 
 //--------------------------------------------------------------
+Window::NativeDeviceEvents* WindowWin32::GetNativeDeviceEvents()
+{
+    return &m_nativeDeviceEvents;
+}
+
+//--------------------------------------------------------------
 Window::NativeInputEvents* WindowWin32::GetNativeInputEvents()
 {
     return &m_nativeInputEvents;
@@ -390,6 +399,12 @@ Window::NativeTextEvents* WindowWin32::GetNativeTextEvents()
 void WindowWin32::OnNativeWindowDestroyed()
 {
     m_isClosed = true;
+}
+
+//--------------------------------------------------------------
+void WindowWin32::OnNativeDeviceEvent(WPARAM a_wParam)
+{
+    m_nativeDeviceEvents.Dispatch(&a_wParam);
 }
 
 //--------------------------------------------------------------
@@ -443,16 +458,22 @@ LRESULT CALLBACK OnWindowMessage(HWND a_handle,
 
     switch (a_message)
     {
-        case WM_DESTROY:
-        {
-            window->OnNativeWindowDestroyed();
-            return 0;
-        }
-        break;
         case WM_CHAR:
         {
             const USHORT codeUnitUTF16 = (USHORT)(a_wParam);
             window->OnNativeTextEvent(codeUnitUTF16);
+            return 0;
+        }
+        break;
+        case WM_DEVICECHANGE:
+        {
+            window->OnNativeDeviceEvent(a_wParam);
+            return 0;
+        }
+        break;
+        case WM_DESTROY:
+        {
+            window->OnNativeWindowDestroyed();
             return 0;
         }
         break;

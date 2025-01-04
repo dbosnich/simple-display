@@ -69,6 +69,7 @@ protected:
     void* GetNativeDisplayHandle() const override;
     void* GetNativeWindowHandle() const override;
 
+    Window::NativeDeviceEvents* GetNativeDeviceEvents() override;
     Window::NativeInputEvents* GetNativeInputEvents() override;
     Window::NativeTextEvents* GetNativeTextEvents() override;
 
@@ -524,6 +525,12 @@ void* WindowLinux::GetNativeDisplayHandle() const
 void* WindowLinux::GetNativeWindowHandle() const
 {
     return const_cast<::Window*>(&m_xWindow);
+}
+
+//--------------------------------------------------------------
+Window::NativeDeviceEvents* WindowLinux::GetNativeDeviceEvents()
+{
+    return nullptr;
 }
 
 //--------------------------------------------------------------
