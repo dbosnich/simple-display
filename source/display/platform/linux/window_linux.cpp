@@ -417,12 +417,9 @@ void WindowLinux::FullScreen(Bool a_enable)
 }
 
 //--------------------------------------------------------------
-static Bool ShouldProcessEvent(::Display*,
-                               XEvent* a_event,
-                               XPointer a_pointer)
+static Bool ShouldProcessEvent(::Display*, XEvent*, XPointer)
 {
-    ::Window* window = (::Window*)a_pointer;
-    return a_event->xany.window == *window;
+    return true;
 }
 
 //--------------------------------------------------------------
