@@ -282,6 +282,7 @@ void WindowMacOS::PumpWindowEventsOnce()
                                                    inMode: NSDefaultRunLoopMode
                                                   dequeue: YES])
         {
+            m_nativeInputEvents.Dispatch(event);
             [NSApp sendEvent: event];
         }
     }
